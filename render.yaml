@@ -18,5 +18,3 @@ services:
         sync: false
       - key: CORS_ORIGIN_REGEX
         sync: false
-      - key: MATCH_DURATION_SECONDS
-        value: "120"

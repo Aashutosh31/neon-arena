@@ -3,51 +3,44 @@ import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { Server } from "socket.io";
+import { Server, type Socket } from "socket.io";
 import {
-  ARENA_LIMIT,
-  DAMAGE_PER_HIT,
-  EYE_HEIGHT,
-  MATCH_DURATION_SECONDS,
-  MAX_HEALTH,
+  MAX_MATCH_PLAYERS,
   NETWORK_TICK_RATE,
-  PLAYER_HEIGHT,
-  PLAYER_RADIUS,
-  RESPAWN_TIME,
+  QUEUE_BOT_FILL_MS,
   SERVER_PORT,
 } from "../shared/constants";
-import {
-  MAP_OBJECTS,
-  playerHitsMap,
-  rayBoxDistance,
-} from "../shared/map";
-import { simulateMovement } from "../shared/movement";
+import { DEFAULT_RULES, GameSimulation, sanitizeName } from "../shared/game";
 import type {
   ClientToServerEvents,
-  MovementInput,
+  GameMode,
   PlayerInputPayload,
   PlayerShootPayload,
-  PlayerState,
+  QueueJoinPayload,
   ServerToClientEvents,
   Vec3,
+  WeaponId,
 } from "../shared/types";
+import { isWeaponId } from "../shared/weapons";
 
 const envFile = resolve(process.cwd(), ".env");
 if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
   process.loadEnvFile(envFile);
 }
 
-/**
- * Server-only fields. They are deliberately excluded from game_state via
- * toPlayerState() so clients only receive what they need.
- */
-interface ServerPlayer extends PlayerState {
-  velocity: Vec3;
-  grounded: boolean;
-  accumulator: number;
-  input: MovementInput;
-  lastInputSequence: number;
-  lastInputAt: number;
+interface QueueEntry {
+  socket: Socket<ClientToServerEvents, ServerToClientEvents>;
+  mode: GameMode;
+  name: string;
+  joinedAt: number;
+}
+
+interface ServerMatch {
+  id: string;
+  room: string;
+  game: GameSimulation;
+  humanIds: Set<string>;
+  emptySince: number | null;
 }
 
 const app = express();
@@ -82,7 +75,6 @@ function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin || allowAllOrigins) {
     return true;
   }
-
   return allowedOrigins.includes(origin) || originRegex?.test(origin) === true;
 }
 
@@ -94,14 +86,18 @@ const corsOrigin = (
     callback(null, true);
     return;
   }
-
   callback(new Error(`Origin not allowed: ${origin}`));
 };
 
 app.disable("x-powered-by");
 
 app.get("/health", (_request, response) => {
-  response.status(200).json({ status: "ok", uptime: process.uptime() });
+  response.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    matches: matches.size,
+    queued: queue.size,
+  });
 });
 
 if (serveClient) {
@@ -131,57 +127,23 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   },
 });
 
-/*
- * Authoritative player state, including velocity and the latest input sample.
- * The client never sends a position; it only sends keys + yaw for the server to
- * feed into the same shared simulation.
- */
-const players = new Map<string, ServerPlayer>();
+const matches = new Map<string, ServerMatch>();
+const queue = new Map<string, QueueEntry>();
+const socketMatches = new Map<string, string>();
+let matchCounter = 0;
 
-const durationOverride = Number(process.env.MATCH_DURATION_SECONDS);
-const MATCH_DURATION_MS =
-  (Number.isFinite(durationOverride) && durationOverride > 0
-    ? durationOverride
-    : MATCH_DURATION_SECONDS) * 1000;
-let matchEndsAt = Date.now() + MATCH_DURATION_MS;
-let matchGeneration = 0;
-
-// Slightly larger than the visual capsule to be forgiving of 20hz movement.
-const HIT_RADIUS = PLAYER_RADIUS + 0.05;
-const SERVER_TICK_DELTA = 1 / NETWORK_TICK_RATE;
-
-// If a client stops sending (hidden tab, network loss), stop ghost movement.
-const INPUT_TIMEOUT_MS = 500;
-
-function createSpawn(): Vec3 {
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    const x = (Math.random() * 2 - 1) * 8;
-    const z = (Math.random() * 2 - 1) * 8;
-    if (!playerHitsMap(x, 0, z)) {
-      return { x, y: 0, z };
-    }
-  }
-
-  return { x: 0, y: 0, z: 0 };
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function createEmptyInput(): MovementInput {
-  return {
-    forward: false,
-    backward: false,
-    left: false,
-    right: false,
-    jump: false,
-    yaw: 0,
-  };
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
-/** Runtime validation: never trust a payload just because TypeScript says so. */
 function readVec3(value: unknown): Vec3 | null {
   if (typeof value !== "object" || value === null) {
     return null;
   }
-
   const { x, y, z } = value as Partial<Vec3>;
   if (
     typeof x !== "number" ||
@@ -193,171 +155,187 @@ function readVec3(value: unknown): Vec3 | null {
   ) {
     return null;
   }
-
   return { x, y, z };
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function readMode(value: unknown): GameMode | null {
+  return value === "tdm" || value === "ffa" ? value : null;
 }
 
-function readBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
+function getMatchForSocket(socketId: string): ServerMatch | null {
+  const matchId = socketMatches.get(socketId);
+  return matchId ? (matches.get(matchId) ?? null) : null;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function toPlayerState(player: ServerPlayer): PlayerState {
-  return {
-    id: player.id,
-    position: player.position,
-    rotation: player.rotation,
-    health: player.health,
-    kills: player.kills,
-    deaths: player.deaths,
+function broadcastQueueStatus(mode: GameMode, now = Date.now()): void {
+  const entries = [...queue.values()]
+    .filter((entry) => entry.mode === mode)
+    .sort((a, b) => a.joinedAt - b.joinedAt);
+  const oldest = entries[0]?.joinedAt ?? now;
+  const fillIn = Math.max(0, QUEUE_BOT_FILL_MS - (now - oldest));
+  const payload = {
+    mode,
+    players: entries.length,
+    needed: Math.max(0, MAX_MATCH_PLAYERS - entries.length),
+    fillsWithBotsIn: Math.ceil(fillIn / 1000),
   };
+  for (const entry of entries) {
+    entry.socket.emit("queue_status", payload);
+  }
 }
 
-function getMatchTime(now = Date.now()): number {
-  return Math.max(0, Math.ceil((matchEndsAt - now) / 1000));
-}
+function createMatch(mode: GameMode, entries: QueueEntry[], now: number): void {
+  matchCounter += 1;
+  const id = `match-${matchCounter}`;
+  const room = id;
+  const humanIds = new Set<string>();
 
-function broadcastState(now = Date.now()): void {
-  io.emit("game_state", {
-    players: Array.from(players.values(), toPlayerState),
-    matchTime: getMatchTime(now),
+  const game = new GameSimulation(mode, DEFAULT_RULES, {
+    onShot: (shooterId, origin, direction, weapon) => {
+      io.to(room).emit("player_shoot", {
+        shooterId,
+        origin,
+        direction,
+        weapon,
+      });
+    },
+    onHit: (shooterId, targetId, damage, headshot) => {
+      if (humanIds.has(shooterId)) {
+        io.to(shooterId).emit("player_hit", {
+          targetId,
+          damage,
+          headshot,
+        });
+      }
+    },
+    onKilled: (killerId, victimId, headshot, respawnAt) => {
+      io.to(room).emit("player_died", {
+        playerId: victimId,
+        killerId,
+        headshot,
+        respawnAt,
+      });
+    },
+    onRespawn: (player) => {
+      io.to(room).emit("player_respawned", player);
+    },
+    onMatchOver: (winner, scores, restartIn) => {
+      io.to(room).emit("match_over", { winner, scores, restartIn });
+    },
   });
+
+  for (const entry of entries) {
+    queue.delete(entry.socket.id);
+    entry.socket.join(room);
+    humanIds.add(entry.socket.id);
+    socketMatches.set(entry.socket.id, id);
+    game.addPlayer(entry.socket.id, entry.name);
+  }
+
+  while (game.playerCount < MAX_MATCH_PLAYERS) {
+    game.addBot();
+  }
+
+  game.start(now);
+  const match: ServerMatch = {
+    id,
+    room,
+    game,
+    humanIds,
+    emptySince: null,
+  };
+  matches.set(id, match);
+
+  io.to(room).emit("game_state", game.getState(now));
+  console.log(
+    `Match ${id} started (${mode}, ${humanIds.size} humans, ${game.playerCount - humanIds.size} bots)`,
+  );
 }
 
-function resetMatch(now: number): void {
-  matchGeneration += 1;
-  matchEndsAt = now + MATCH_DURATION_MS;
+function runMatchmaker(now: number): void {
+  for (const mode of ["tdm", "ffa"] as const) {
+    const entries = [...queue.values()]
+      .filter((entry) => entry.mode === mode)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
 
-  for (const player of players.values()) {
-    player.health = MAX_HEALTH;
-    player.kills = 0;
-    player.deaths = 0;
-    player.position = createSpawn();
-    player.rotation = { x: 0, y: 0, z: 0 };
-    player.velocity = { x: 0, y: 0, z: 0 };
-    player.grounded = true;
-    player.accumulator = 0;
-    player.input = createEmptyInput();
-    player.lastInputAt = now;
-    io.emit("player_respawned", toPlayerState(player));
+    if (entries.length === 0) {
+      continue;
+    }
+
+    const oldest = entries[0].joinedAt;
+    const full = entries.length >= MAX_MATCH_PLAYERS;
+    const fillWithBots = now - oldest >= QUEUE_BOT_FILL_MS;
+
+    if (full || fillWithBots) {
+      const selected = entries.slice(0, MAX_MATCH_PLAYERS);
+      if (mode === "tdm") {
+        for (let index = selected.length - 1; index > 0; index -= 1) {
+          const swap = Math.floor(Math.random() * (index + 1));
+          [selected[index], selected[swap]] = [selected[swap], selected[index]];
+        }
+      }
+      createMatch(mode, selected, now);
+    }
+
+    broadcastQueueStatus(mode, now);
   }
 }
 
-/**
- * Ray vs. vertical bounding cylinder (no physics engine). Returns the distance
- * along the ray to the closest hit, or null. `direction` must be normalized.
- *
- * The side is an infinite XZ cylinder clipped to the player's height; the top
- * and bottom caps catch shots that enter through the head or feet.
- */
-function rayCylinderDistance(
-  origin: Vec3,
-  direction: Vec3,
-  position: Vec3,
-): number | null {
-  const offsetX = origin.x - position.x;
-  const offsetZ = origin.z - position.z;
-  const yMin = position.y;
-  const yMax = position.y + PLAYER_HEIGHT;
+function removeFromQueue(socketId: string): void {
+  const entry = queue.get(socketId);
+  if (!entry) {
+    return;
+  }
+  queue.delete(socketId);
+  broadcastQueueStatus(entry.mode);
+}
 
-  const a = direction.x * direction.x + direction.z * direction.z;
-  const b = 2 * (offsetX * direction.x + offsetZ * direction.z);
-  const c = offsetX * offsetX + offsetZ * offsetZ - HIT_RADIUS * HIT_RADIUS;
-
-  // Starting inside the volume (e.g. overlapping spawns) counts as a hit.
-  if (c <= 0 && origin.y >= yMin && origin.y <= yMax) {
-    return 0;
+function removeFromMatch(socketId: string): void {
+  const match = getMatchForSocket(socketId);
+  if (!match) {
+    return;
   }
 
-  let nearest: number | null = null;
+  match.humanIds.delete(socketId);
+  match.game.removePlayer(socketId);
+  socketMatches.delete(socketId);
+  io.to(match.room).emit("player_left", socketId);
 
-  if (a > 1e-8) {
-    const discriminant = b * b - 4 * a * c;
-    if (discriminant >= 0) {
-      const sqrtDisc = Math.sqrt(discriminant);
-      const inverse = 1 / (2 * a);
-
-      const tNear = (-b - sqrtDisc) * inverse;
-      if (tNear >= 0) {
-        const y = origin.y + tNear * direction.y;
-        if (y >= yMin && y <= yMax) {
-          nearest = tNear;
-        }
-      }
-
-      const tFar = (-b + sqrtDisc) * inverse;
-      if (tFar >= 0 && (nearest === null || tFar < nearest)) {
-        const y = origin.y + tFar * direction.y;
-        if (y >= yMin && y <= yMax) {
-          nearest = tFar;
-        }
-      }
-    }
+  if (match.humanIds.size === 0) {
+    match.emptySince = match.emptySince ?? Date.now();
   }
-
-  if (Math.abs(direction.y) > 1e-8) {
-    const tTop = (yMax - origin.y) / direction.y;
-    if (tTop >= 0 && (nearest === null || tTop < nearest)) {
-      const dx = origin.x + tTop * direction.x - position.x;
-      const dz = origin.z + tTop * direction.z - position.z;
-      if (dx * dx + dz * dz <= HIT_RADIUS * HIT_RADIUS) {
-        nearest = tTop;
-      }
-    }
-
-    const tBottom = (yMin - origin.y) / direction.y;
-    if (tBottom >= 0 && (nearest === null || tBottom < nearest)) {
-      const dx = origin.x + tBottom * direction.x - position.x;
-      const dz = origin.z + tBottom * direction.z - position.z;
-      if (dx * dx + dz * dz <= HIT_RADIUS * HIT_RADIUS) {
-        nearest = tBottom;
-      }
-    }
-  }
-
-  return nearest;
 }
 
 io.on("connection", (socket) => {
-  const player: ServerPlayer = {
-    id: socket.id,
-    position: createSpawn(),
-    rotation: { x: 0, y: 0, z: 0 },
-    health: MAX_HEALTH,
-    kills: 0,
-    deaths: 0,
-    velocity: { x: 0, y: 0, z: 0 },
-    grounded: true,
-    accumulator: 0,
-    input: createEmptyInput(),
-    lastInputSequence: 0,
-    lastInputAt: Date.now(),
-  };
-  players.set(socket.id, player);
+  console.log(`Socket connected: ${socket.id}`);
 
-  console.log(`Player connected: ${socket.id} (${players.size} online)`);
-
-  let lastShotAt = 0;
-
-  // Send the full current world to the newcomer so it can spawn everyone.
-  socket.emit("game_state", {
-    players: Array.from(players.values(), toPlayerState),
-    matchTime: getMatchTime(),
+  socket.on("queue_join", (payload: QueueJoinPayload) => {
+    const mode = readMode(payload?.mode);
+    if (!mode || queue.has(socket.id) || socketMatches.has(socket.id)) {
+      return;
+    }
+    queue.set(socket.id, {
+      socket,
+      mode,
+      name: sanitizeName(payload?.name),
+      joinedAt: Date.now(),
+    });
+    broadcastQueueStatus(mode);
   });
 
-  // Existing clients only need the new capsule, not another full snapshot.
-  socket.broadcast.emit("player_joined", toPlayerState(player));
+  socket.on("queue_leave", () => {
+    removeFromQueue(socket.id);
+  });
+
+  socket.on("client_ping", (callback) => {
+    if (typeof callback === "function") {
+      callback();
+    }
+  });
 
   socket.on("player_input", (payload: PlayerInputPayload) => {
-    const state = players.get(socket.id);
-    if (!state || state.health <= 0) {
+    const match = getMatchForSocket(socket.id);
+    if (!match) {
       return;
     }
 
@@ -370,11 +348,12 @@ io.on("connection", (socket) => {
     const left = readBoolean(payload?.left);
     const right = readBoolean(payload?.right);
     const jump = readBoolean(payload?.jump);
+    const ads = readBoolean(payload?.ads);
 
     if (
       sequence === null ||
       !Number.isInteger(sequence) ||
-      sequence <= state.lastInputSequence ||
+      sequence <= 0 ||
       delta === null ||
       delta < 0 ||
       yaw === null ||
@@ -383,228 +362,71 @@ io.on("connection", (socket) => {
       backward === null ||
       left === null ||
       right === null ||
-      jump === null
+      jump === null ||
+      ads === null
     ) {
       return;
     }
 
-    /*
-     * The client delta is validated but never used for authority: a cheater
-     * could send huge deltas. Movement advances only on the fixed server tick,
-     * which also makes rapid-fire input packets unable to grant extra speed.
-     */
-    state.lastInputSequence = sequence;
-    state.lastInputAt = Date.now();
-    state.input.forward = forward;
-    state.input.backward = backward;
-    state.input.left = left;
-    state.input.right = right;
-    state.input.jump = jump;
-    state.input.yaw = yaw;
-
-    // Rotation is server state too; pitch is clamped to a sane range.
-    state.rotation = {
-      x: clamp(pitch, -Math.PI / 2, Math.PI / 2),
-      y: yaw,
-      z: 0,
-    };
-  });
-
-  socket.on("client_ping", (callback) => {
-    if (typeof callback === "function") {
-      callback();
-    }
+    match.game.setInput(
+      socket.id,
+      { forward, backward, left, right, jump, yaw, ads },
+      sequence,
+      Date.now(),
+    );
+    match.game.setRotation(socket.id, pitch, yaw);
   });
 
   socket.on("player_shoot", (payload: PlayerShootPayload) => {
-    const shooter = players.get(socket.id);
-    if (!shooter || shooter.health <= 0) {
+    const match = getMatchForSocket(socket.id);
+    if (!match || !isWeaponId(payload?.weapon)) {
       return;
     }
-
-    // Loose server-side rate limit: clients fire at 200ms, but network jitter
-    // can bunch packets; 100ms only rejects obvious spam.
-    const now = Date.now();
-    if (now - lastShotAt < 100) {
-      return;
-    }
-
     const direction = readVec3(payload?.direction);
     if (!direction) {
       return;
     }
+    match.game.shoot(socket.id, direction, payload.weapon, Date.now());
+  });
 
-    const length = Math.hypot(direction.x, direction.y, direction.z);
-    if (length < 1e-6) {
+  socket.on("player_reload", () => {
+    getMatchForSocket(socket.id)?.game.reload(socket.id, Date.now());
+  });
+
+  socket.on("player_switch_weapon", (weapon: WeaponId) => {
+    if (!isWeaponId(weapon)) {
       return;
     }
-    lastShotAt = now;
-
-    const normalizedDirection: Vec3 = {
-      x: direction.x / length,
-      y: direction.y / length,
-      z: direction.z / length,
-    };
-
-    /*
-     * The origin comes from server state, never from the client payload. A
-     * cheater cannot teleport a ray next to another player; the client only
-     * controls where it aims.
-     */
-    const origin: Vec3 = {
-      x: shooter.position.x,
-      y: shooter.position.y + EYE_HEIGHT,
-      z: shooter.position.z,
-    };
-
-    let target: ServerPlayer | null = null;
-    let nearestDistance = Infinity;
-    let nearestCover = Infinity;
-
-    for (const box of MAP_OBJECTS) {
-      const distance = rayBoxDistance(origin, normalizedDirection, box);
-      if (distance !== null && distance < nearestCover) {
-        nearestCover = distance;
-      }
-    }
-
-    for (const candidate of players.values()) {
-      if (candidate.id === shooter.id || candidate.health <= 0) {
-        continue;
-      }
-
-      const distance = rayCylinderDistance(
-        origin,
-        normalizedDirection,
-        candidate.position,
-      );
-      if (distance !== null && distance < nearestDistance) {
-        nearestDistance = distance;
-        target = candidate;
-      }
-    }
-
-    if (target && nearestDistance > nearestCover) {
-      target = null;
-    }
-
-    // Everyone else still needs the tracer, even on a miss.
-    socket.broadcast.emit("player_shoot", {
-      shooterId: shooter.id,
-      origin,
-      direction: normalizedDirection,
-    });
-
-    if (!target) {
-      return;
-    }
-
-    // Damage is applied only here; the client never reports health or hits.
-    target.health = Math.max(0, target.health - DAMAGE_PER_HIT);
-    socket.emit("player_hit", {
-      targetId: target.id,
-      damage: DAMAGE_PER_HIT,
-    });
-
-    if (target.health > 0) {
-      return;
-    }
-
-    shooter.kills += 1;
-    target.deaths += 1;
-    target.velocity.x = 0;
-    target.velocity.y = 0;
-    target.velocity.z = 0;
-    target.grounded = true;
-    target.accumulator = 0;
-
-    const generation = matchGeneration;
-    const respawnAt = Date.now() + RESPAWN_TIME;
-    io.emit("player_died", {
-      playerId: target.id,
-      respawnAt,
-    });
-
-    setTimeout(() => {
-      if (generation !== matchGeneration) {
-        return;
-      }
-
-      const respawned = players.get(target.id);
-      if (!respawned) {
-        return;
-      }
-
-      respawned.health = MAX_HEALTH;
-      respawned.position = createSpawn();
-      respawned.rotation = { x: 0, y: 0, z: 0 };
-      respawned.velocity = { x: 0, y: 0, z: 0 };
-      respawned.grounded = true;
-      respawned.accumulator = 0;
-      respawned.input = createEmptyInput();
-      respawned.lastInputAt = Date.now();
-      io.emit("player_respawned", toPlayerState(respawned));
-    }, RESPAWN_TIME);
+    getMatchForSocket(socket.id)?.game.selectWeapon(socket.id, weapon);
   });
 
   socket.on("disconnect", (reason) => {
-    players.delete(socket.id);
-
-    // Use io.emit, not socket.broadcast: by the time "disconnect" fires the
-    // socket has left its rooms, so broadcast can silently reach nobody.
-    io.emit("player_left", socket.id);
-
-    console.log(
-      `Player disconnected: ${socket.id} (${reason}) (${players.size} online)`,
-    );
+    removeFromQueue(socket.id);
+    removeFromMatch(socket.id);
+    console.log(`Socket disconnected: ${socket.id} (${reason})`);
   });
 });
 
-/*
- * Fixed 20hz network tick: inputs only change the latest flags, physics runs
- * in 120hz substeps inside simulateMovement, and one snapshot is broadcast.
- */
+setInterval(() => {
+  runMatchmaker(Date.now());
+}, 500);
+
 setInterval(() => {
   const now = Date.now();
+  for (const match of [...matches.values()]) {
+    match.game.update(now, 1 / NETWORK_TICK_RATE);
+    io.to(match.room).emit("game_state", match.game.getState(now));
 
-  if (now >= matchEndsAt) {
-    resetMatch(now);
-  }
-
-  for (const player of players.values()) {
-    if (player.health <= 0) {
-      continue;
-    }
-
-    if (now - player.lastInputAt > INPUT_TIMEOUT_MS) {
-      player.input.forward = false;
-      player.input.backward = false;
-      player.input.left = false;
-      player.input.right = false;
-      player.input.jump = false;
-    }
-
-    simulateMovement(player, player.input, SERVER_TICK_DELTA);
-
-    // Bounds clamp is a backstop; normal prediction respects the same limit.
-    if (player.position.x < -ARENA_LIMIT) {
-      player.position.x = -ARENA_LIMIT;
-      player.velocity.x = 0;
-    } else if (player.position.x > ARENA_LIMIT) {
-      player.position.x = ARENA_LIMIT;
-      player.velocity.x = 0;
-    }
-
-    if (player.position.z < -ARENA_LIMIT) {
-      player.position.z = -ARENA_LIMIT;
-      player.velocity.z = 0;
-    } else if (player.position.z > ARENA_LIMIT) {
-      player.position.z = ARENA_LIMIT;
-      player.velocity.z = 0;
+    if (match.humanIds.size === 0) {
+      if (match.emptySince === null) {
+        match.emptySince = now;
+      } else if (now - match.emptySince > 5000) {
+        io.in(match.room).socketsLeave(match.room);
+        matches.delete(match.id);
+        console.log(`Match ${match.id} closed (empty)`);
+      }
     }
   }
-
-  broadcastState(now);
 }, 1000 / NETWORK_TICK_RATE);
 
 const parsedPort = Number(process.env.PORT);

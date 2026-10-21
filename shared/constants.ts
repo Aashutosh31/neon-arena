@@ -22,6 +22,7 @@ export const PLAYER_HALF_WIDTH = PLAYER_WIDTH / 2;
 export const PLAYER_HALF_DEPTH = PLAYER_DEPTH / 2;
 export const PLAYER_RADIUS = PLAYER_WIDTH / 2;
 export const EYE_HEIGHT = 1.6;
+export const HEAD_HEIGHT = PLAYER_HEIGHT - 0.34;
 
 /*
  * Perimeter walls have their inner faces at x/z = +/-24. This is the maximum
@@ -42,8 +43,13 @@ export const AIR_ACCELERATION = 4;
 export const GROUND_FRICTION = 12;
 export const AIR_FRICTION = 0.5;
 
-// Combat values. Health is only ever modified by the server.
 export const MAX_HEALTH = 100;
-export const DAMAGE_PER_HIT = 25;
 export const RESPAWN_TIME = 3000;
-export const MATCH_DURATION_SECONDS = 120;
+export const MATCH_DURATION_SECONDS = 180;
+export const MATCH_RESTART_MS = 5000;
+export const TEAM_SIZE = 4;
+export const MAX_MATCH_PLAYERS = TEAM_SIZE * 2;
+export const QUEUE_BOT_FILL_MS = 7000;
+export const BOT_COUNT = 7;
+export const MAX_NAME_LENGTH = 16;
+export const MAX_CHAT_LENGTH = 120;

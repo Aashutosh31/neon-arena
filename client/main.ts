@@ -1,1160 +1,997 @@
 import * as THREE from "three";
-import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import { io, type Socket } from "socket.io-client";
+import "./style.css";
 import {
   EYE_HEIGHT,
-  MAX_HEALTH,
+  MATCH_RESTART_MS,
+  MAX_MATCH_PLAYERS,
   NETWORK_TICK_RATE,
-  PLAYER_HEIGHT,
-  PLAYER_RADIUS,
 } from "../shared/constants";
 import {
-  FLOOR_COLOR,
-  FLOOR_SIZE,
-  FLOOR_Y,
-  MAP_OBJECTS,
-} from "../shared/map";
+  DEFAULT_RULES,
+  GameSimulation,
+  fillPracticeBots,
+  type GameEvents,
+} from "../shared/game";
 import type {
   ClientToServerEvents,
+  GameMode,
+  GameRules,
+  GameStatePayload,
+  PlayerInputPayload,
   PlayerState,
   ServerToClientEvents,
+  WeaponId,
 } from "../shared/types";
+import { WEAPONS, nextWeapon } from "../shared/weapons";
 import { GameAudio } from "./audio";
-import { InputManager } from "./input";
+import { CombatEffects } from "./effects";
+import { Hud } from "./hud";
+import { InputManager, IS_TOUCH_DEVICE } from "./input";
 import { Gun, Player } from "./player";
+import { RemoteManager } from "./remotes";
+import { createWorld } from "./world";
 
-/*
- * ---------------------------------------------------------------------------
- * Renderer
- * ---------------------------------------------------------------------------
- * - antialias: false  -> cheapest option on Intel HD 620. Turn on only if the
- *   jagged edges bother you; MSAA is one of the first things to eat GPU time.
- * - powerPreference: "low-power" -> hints the browser to use the integrated GPU
- *   efficiently rather than forcing a high-performance profile.
- * - The pixel ratio is clamped to 2 because rendering at 3x or 4x on a HiDPI
- *   display quadruples fragment work for almost no visible benefit.
- * - `alpha: false` lets the renderer skip compositing with the page background.
- */
+type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
 const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas");
 if (!canvas) {
   throw new Error("Canvas #game-canvas not found");
 }
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: false,
-  powerPreference: "low-power",
-  alpha: false,
-});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-
-/*
- * ---------------------------------------------------------------------------
- * Scene
- * ---------------------------------------------------------------------------
- * A near-black background keeps the neon grid as the main light source and
- * avoids drawing a skybox/background texture.
- */
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0a);
-
-// Eye-level camera (1.6m) looking down -Z toward the arena.
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000,
-);
-camera.position.set(0, EYE_HEIGHT, 5);
-
-/*
- * The camera must be part of the scene graph for its children (the gun) to be
- * rendered. The gun lives in camera space so it follows the view for free.
- */
-scene.add(camera);
-
-const gun = new Gun();
-camera.add(gun.object);
-
-/*
- * ---------------------------------------------------------------------------
- * Floor
- * ---------------------------------------------------------------------------
- * GridHelper is a single line-segment object, so it costs one draw call and no
- * textures. 50x50 divisions gives 1m cells across a 50m arena.
- */
-const grid = new THREE.GridHelper(
-  FLOOR_SIZE,
-  FLOOR_SIZE,
-  0x005566,
-  0x003344,
-);
-const gridMaterial = grid.material as THREE.LineBasicMaterial;
-gridMaterial.transparent = true;
-gridMaterial.opacity = 0.45;
-grid.position.y = FLOOR_Y + 0.001;
-scene.add(grid);
-
-/*
- * ---------------------------------------------------------------------------
- * Lights
- * ---------------------------------------------------------------------------
- * One ambient light for base visibility and one directional light for shape.
- * No shadow maps: shadows are a major cost on low-end GPUs and the art style
- * can fake them later with blob shadows.
- */
-const ambientLight = new THREE.AmbientLight(0x404040, 1);
-scene.add(ambientLight);
-
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-directionalLight.position.set(5, 10, 7);
-scene.add(directionalLight);
-
-const floorMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
-  new THREE.MeshStandardMaterial({
-    color: FLOOR_COLOR,
-    roughness: 1,
-    metalness: 0,
-  }),
-);
-floorMesh.rotation.x = -Math.PI / 2;
-floorMesh.position.y = FLOOR_Y - 0.01;
-scene.add(floorMesh);
-
-const mapGeometry = new THREE.BoxGeometry(1, 1, 1);
-const mapMaterial = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  roughness: 0.72,
-  metalness: 0.12,
-  flatShading: true,
-});
-const mapMesh = new THREE.InstancedMesh(
-  mapGeometry,
-  mapMaterial,
-  MAP_OBJECTS.length,
-);
-mapMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-mapMesh.matrixAutoUpdate = false;
-mapMesh.updateMatrix();
-
-const mapInstanceMatrix = new THREE.Matrix4();
-const mapInstancePosition = new THREE.Vector3();
-const mapInstanceScale = new THREE.Vector3();
-const mapInstanceQuaternion = new THREE.Quaternion();
-const mapInstanceColor = new THREE.Color();
-
-MAP_OBJECTS.forEach((object, index) => {
-  mapInstancePosition.set(
-    object.x,
-    object.y + object.height / 2,
-    object.z,
-  );
-  mapInstanceScale.set(object.width, object.height, object.depth);
-  mapInstanceMatrix.compose(
-    mapInstancePosition,
-    mapInstanceQuaternion,
-    mapInstanceScale,
-  );
-  mapMesh.setMatrixAt(index, mapInstanceMatrix);
-  mapMesh.setColorAt(index, mapInstanceColor.setHex(object.color));
-});
-
-mapMesh.instanceMatrix.needsUpdate = true;
-if (mapMesh.instanceColor) {
-  mapMesh.instanceColor.needsUpdate = true;
-}
-mapMesh.computeBoundingSphere();
-scene.add(mapMesh);
-
-const EDGE_INDICES = [
-  0, 1, 1, 2, 2, 3, 3, 0,
-  4, 5, 5, 6, 6, 7, 7, 4,
-  0, 4, 1, 5, 2, 6, 3, 7,
-] as const;
-const edgeCorners = new Float32Array(8 * 3);
-const edgePositions = new Float32Array(MAP_OBJECTS.length * 12 * 2 * 3);
-let edgeOffset = 0;
-
-for (const object of MAP_OBJECTS) {
-  const minX = object.x - object.width / 2;
-  const maxX = object.x + object.width / 2;
-  const minY = object.y;
-  const maxY = object.y + object.height;
-  const minZ = object.z - object.depth / 2;
-  const maxZ = object.z + object.depth / 2;
-
-  edgeCorners[0] = minX;
-  edgeCorners[1] = minY;
-  edgeCorners[2] = minZ;
-  edgeCorners[3] = maxX;
-  edgeCorners[4] = minY;
-  edgeCorners[5] = minZ;
-  edgeCorners[6] = maxX;
-  edgeCorners[7] = minY;
-  edgeCorners[8] = maxZ;
-  edgeCorners[9] = minX;
-  edgeCorners[10] = minY;
-  edgeCorners[11] = maxZ;
-  edgeCorners[12] = minX;
-  edgeCorners[13] = maxY;
-  edgeCorners[14] = minZ;
-  edgeCorners[15] = maxX;
-  edgeCorners[16] = maxY;
-  edgeCorners[17] = minZ;
-  edgeCorners[18] = maxX;
-  edgeCorners[19] = maxY;
-  edgeCorners[20] = maxZ;
-  edgeCorners[21] = minX;
-  edgeCorners[22] = maxY;
-  edgeCorners[23] = maxZ;
-
-  for (let i = 0; i < EDGE_INDICES.length; i += 2) {
-    const from = EDGE_INDICES[i] * 3;
-    const to = EDGE_INDICES[i + 1] * 3;
-
-    edgePositions[edgeOffset] = edgeCorners[from];
-    edgePositions[edgeOffset + 1] = edgeCorners[from + 1];
-    edgePositions[edgeOffset + 2] = edgeCorners[from + 2];
-    edgePositions[edgeOffset + 3] = edgeCorners[to];
-    edgePositions[edgeOffset + 4] = edgeCorners[to + 1];
-    edgePositions[edgeOffset + 5] = edgeCorners[to + 2];
-    edgeOffset += 6;
-  }
-}
-
-const mapEdgeGeometry = new THREE.BufferGeometry();
-mapEdgeGeometry.setAttribute(
-  "position",
-  new THREE.BufferAttribute(edgePositions, 3),
-);
-const mapEdgeMaterial = new THREE.LineBasicMaterial({
-  color: 0x00ffff,
-  transparent: true,
-  opacity: 0.42,
-  depthWrite: false,
-});
-const mapEdges = new THREE.LineSegments(
-  mapEdgeGeometry,
-  mapEdgeMaterial,
-);
-scene.add(mapEdges);
-
-const staticMeshes: THREE.Object3D[] = [floorMesh, mapMesh];
+const world = createWorld(canvas, IS_TOUCH_DEVICE);
+const { renderer, scene, camera } = world;
+camera.rotation.order = "YXZ";
 
 const audio = new GameAudio();
+const effects = new CombatEffects(
+  scene,
+  world.staticMeshes,
+  audio,
+  IS_TOUCH_DEVICE,
+);
+const remotes = new RemoteManager(scene, world.staticMeshes);
+const localPlayer = new Player(new THREE.Vector3(0, 0, 10), 0x66f6ff);
+localPlayer.mesh.visible = false;
+scene.add(localPlayer.mesh);
+const gun = new Gun(IS_TOUCH_DEVICE);
+camera.add(gun.object);
+gun.object.visible = false;
 
-/*
- * ---------------------------------------------------------------------------
- * Player + input
- * ---------------------------------------------------------------------------
- * The local mesh is hidden locally: the camera is inside the capsule and other
- * clients render their own copy of us from network snapshots. That also saves
- * one draw call.
- */
+const hud = new Hud();
 const input = new InputManager();
-const player = new Player(new THREE.Vector3(0, 0, 5));
-scene.add(player.mesh);
-player.mesh.visible = false;
 
-/*
- * ---------------------------------------------------------------------------
- * Mouse look
- * ---------------------------------------------------------------------------
- * PointerLockControls only rotates the camera; positioning is driven by the
- * simulated player below. Click the canvas to capture the mouse, Esc to release.
- */
-const controls = new PointerLockControls(camera, renderer.domElement);
-const lockHint = document.querySelector<HTMLDivElement>("#lock-hint");
+const SERVER_URL =
+  (import.meta.env.VITE_SERVER_URL as string | undefined) ?? "";
 
-renderer.domElement.addEventListener("click", () => {
-  // While locked, clicks are shots; requesting the lock again is pointless.
-  if (!controls.isLocked) {
-    controls.lock();
+let active = false;
+let online = false;
+let paused = false;
+let matchOver = false;
+let dead = false;
+let respawnAt = 0;
+let playerId = "";
+let mode: GameMode = "tdm";
+let rules: GameRules = DEFAULT_RULES;
+let offlineGame: GameSimulation | null = null;
+let socket: GameSocket | null = null;
+let searchMode: GameMode | null = null;
+let currentState: GameStatePayload | null = null;
+let yaw = 0;
+let pitch = 0;
+let lastWeapon: WeaponId = "rifle";
+let lastShotAt = 0;
+let triggerWasDown = false;
+let lastInputSentAt = 0;
+let inputSequence = 0;
+let lastPingAt = 0;
+let pingInFlight = false;
+let hasLockedOnce = false;
+let lastDelta = 1 / 60;
+
+const targetVector = new THREE.Vector3();
+const lookDirection = new THREE.Vector3();
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function localState(): PlayerState | null {
+  if (!currentState) {
+    return null;
   }
-});
+  return (
+    currentState.players.find((player) => player.id === playerId) ?? null
+  );
+}
 
-controls.addEventListener("lock", () => {
-  if (lockHint) {
-    lockHint.style.display = "none";
+function createOfflineEvents(): GameEvents {
+  return {
+    onShot: (shooterId, origin, direction, weapon) => {
+      if (shooterId === playerId) {
+        return;
+      }
+      effects.spawnRemoteShot(origin, direction, weapon);
+    },
+    onHit: (shooterId, _targetId, _damage, headshot) => {
+      if (shooterId !== playerId) {
+        return;
+      }
+      hud.flashHit(headshot);
+      audio.playHit(headshot);
+    },
+    onKilled: (killerId, victimId, headshot, nextRespawnAt) => {
+      const killer = killerId
+        ? (offlineGame?.getPlayer(killerId) ?? null)
+        : null;
+      const victim = offlineGame?.getPlayer(victimId) ?? null;
+      hud.addKillFeed(
+        killer?.name ?? "WORLD",
+        victim?.name ?? "OPERATOR",
+        headshot,
+      );
+      if (victimId === playerId) {
+        dead = true;
+        respawnAt = nextRespawnAt;
+        hud.showDeath();
+        hud.updateDeathCountdown(respawnAt);
+        audio.playDeath();
+      }
+    },
+    onRespawn: (player) => {
+      if (player.id === playerId) {
+        handleLocalRespawn(player);
+      }
+    },
+    onMatchOver: (winner, scores, restartIn) => {
+      handleMatchOver(
+        winner,
+        scores,
+        restartIn,
+        offlineGame?.getState() ?? null,
+      );
+    },
+  };
+}
+
+function startOffline(nextMode: GameMode): void {
+  if (active) {
+    return;
   }
-});
 
-controls.addEventListener("unlock", () => {
-  // Prevent keys held during Esc from staying "pressed" after unlock.
+  searchMode = null;
+  if (socket) {
+    const previous = socket;
+    socket = null;
+    previous.disconnect();
+  }
+
+  mode = nextMode;
+  rules = hud.readModRules();
+  playerId = "local";
+  online = false;
+  paused = false;
+  matchOver = false;
+  dead = false;
+  respawnAt = 0;
+  currentState = null;
+  lastShotAt = 0;
+  triggerWasDown = false;
+  lastWeapon = "rifle";
+
+  offlineGame = new GameSimulation(mode, rules, createOfflineEvents());
+  const spawn = offlineGame.addPlayer(
+    playerId,
+    hud.getPlayerName(),
+    mode === "tdm" ? "alpha" : "ffa",
+    false,
+  );
+  fillPracticeBots(offlineGame);
+  offlineGame.start();
+
+  localPlayer.setRules(rules);
+  localPlayer.reset(spawn.position);
+  yaw = spawn.rotation.y;
+  pitch = 0;
+  gun.setWeapon(spawn.weapon);
+  gun.object.visible = true;
+  lastWeapon = spawn.weapon;
+
+  active = true;
+  remotes.clear();
+  hud.startMatch();
+  hud.setConnection("LOCAL MATCH");
+  hud.setPing("--");
+  document.body.classList.add("playing");
   input.clear();
-  if (lockHint) {
-    lockHint.style.display = "block";
-  }
-});
-
-/*
- * ---------------------------------------------------------------------------
- * Networking
- * ---------------------------------------------------------------------------
- * The socket receives authoritative snapshots and only sends the local pose at
- * 20hz. Remote capsules interpolate toward their latest server target so 20hz
- * data still looks smooth at 60fps.
- */
-interface RemotePlayer {
-  mesh: THREE.Mesh;
-  targetPosition: THREE.Vector3;
-  targetQuaternion: THREE.Quaternion;
+  input.setEnabled(true);
+  syncState(offlineGame.getState(), true, 0);
+  requestPointerLock();
 }
 
-const REMOTE_LERP_RATE = 15;
-const SEND_INTERVAL_MS = 1000 / NETWORK_TICK_RATE;
-const RECONCILE_SNAP_DISTANCE_SQ = 1;
-const RECONCILE_LERP = 0.2;
-const RECONCILE_DONE_SQ = 0.01 * 0.01;
-const WORLD_UP = new THREE.Vector3(0, 1, 0);
-
-// One geometry/material shared by every remote capsule to keep RAM and draw
-// state changes low. Never dispose these when a single player leaves.
-const remoteGeometry = new THREE.CapsuleGeometry(
-  PLAYER_RADIUS,
-  PLAYER_HEIGHT - PLAYER_RADIUS * 2,
-  4,
-  8,
-);
-const remoteMaterial = new THREE.MeshStandardMaterial({
-  color: 0xff5500,
-  emissive: 0xff3300,
-  emissiveIntensity: 0.8,
-  flatShading: true,
-  roughness: 0.6,
-  metalness: 0,
-});
-
-const remotePlayers = new Map<string, RemotePlayer>();
-const remoteMeshes: THREE.Mesh[] = [];
-const hittableTargets: THREE.Object3D[] = [...staticMeshes];
-const connectionStatus =
-  document.querySelector<HTMLDivElement>("#connection-status");
-const crosshair = document.querySelector<HTMLDivElement>("#crosshair");
-const healthBar = document.querySelector<HTMLDivElement>("#health-bar");
-const healthFill = document.querySelector<HTMLDivElement>("#health-fill");
-const healthLabel = document.querySelector<HTMLDivElement>("#health-label");
-const hitMarker = document.querySelector<HTMLDivElement>("#hit-marker");
-const deathOverlay = document.querySelector<HTMLDivElement>("#death-overlay");
-const matchTimer = document.querySelector<HTMLDivElement>("#match-timer");
-const scoreboardRows =
-  document.querySelector<HTMLDivElement>("#scoreboard-rows");
-const pingLabel = document.querySelector<HTMLDivElement>("#ping");
-
-let localHealth = MAX_HEALTH;
-let localDead = false;
-let hitMarkerTimeout = 0;
-let lastTimerText = "";
-let lastTimerLow = false;
-let scoreboardSignature = "";
-const reconcileTarget = new THREE.Vector3();
-let reconciling = false;
-let pingRequest = 0;
-
-function setLocalHealth(health: number): void {
-  const clamped = Math.max(0, Math.min(MAX_HEALTH, Math.round(health)));
-  if (clamped === localHealth) {
+function startOnline(nextMode: GameMode): void {
+  if (active) {
     return;
   }
-
-  localHealth = clamped;
-  if (healthFill) {
-    healthFill.style.width = `${(clamped / MAX_HEALTH) * 100}%`;
+  searchMode = nextMode;
+  hud.showSearching(nextMode);
+  hud.setConnection("CONNECTING");
+  hud.setPing("--");
+  const client = ensureSocket();
+  if (client.connected) {
+    joinQueue(nextMode);
   }
-  if (healthLabel) {
-    healthLabel.textContent = `HP ${clamped}`;
-  }
-  healthBar?.classList.toggle("low", clamped <= 25);
 }
 
-function flashHitMarker(): void {
-  if (!hitMarker) {
+function joinQueue(nextMode: GameMode): void {
+  if (!socket?.connected || active) {
     return;
   }
-
-  hitMarker.style.opacity = "1";
-  window.clearTimeout(hitMarkerTimeout);
-  hitMarkerTimeout = window.setTimeout(() => {
-    hitMarker.style.opacity = "0";
-  }, 100);
-}
-
-function formatMatchTime(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(total / 60);
-  const remainder = total % 60;
-  return `${minutes}:${remainder.toString().padStart(2, "0")}`;
-}
-
-function updateMatchTimer(matchTime: number): void {
-  const text = formatMatchTime(matchTime);
-  if (text !== lastTimerText) {
-    lastTimerText = text;
-    if (matchTimer) {
-      matchTimer.textContent = text;
-    }
-  }
-
-  const low = matchTime <= 10;
-  if (low !== lastTimerLow) {
-    lastTimerLow = low;
-    matchTimer?.classList.toggle("low", low);
-  }
-}
-
-function updateScoreboard(players: PlayerState[]): void {
-  let signature = "";
-  for (const player of players) {
-    signature += `${player.id}:${player.kills}:${player.deaths}|`;
-  }
-
-  if (signature === scoreboardSignature || !scoreboardRows) {
-    return;
-  }
-  scoreboardSignature = signature;
-
-  const sorted = [...players].sort(
-    (a, b) =>
-      b.kills - a.kills ||
-      a.deaths - b.deaths ||
-      a.id.localeCompare(b.id),
-  );
-  const fragment = document.createDocumentFragment();
-
-  for (const player of sorted) {
-    const row = document.createElement("div");
-    row.className = "score-row";
-
-    const name = document.createElement("span");
-    const isLocal = player.id === socket.id;
-    name.className = isLocal ? "score-name local" : "score-name";
-    name.textContent = isLocal
-      ? "YOU"
-      : player.id.slice(-4).toUpperCase();
-
-    const score = document.createElement("span");
-    score.className = "score-kd";
-    score.textContent = `${player.kills} / ${player.deaths}`;
-
-    row.append(name, score);
-    fragment.append(row);
-  }
-
-  scoreboardRows.replaceChildren(fragment);
-}
-
-function setRemoteAlive(remote: RemotePlayer, alive: boolean): void {
-  remote.mesh.visible = alive;
-
-  const meshIndex = remoteMeshes.indexOf(remote.mesh);
-  const targetIndex = hittableTargets.indexOf(remote.mesh);
-
-  if (alive) {
-    if (meshIndex === -1) {
-      remoteMeshes.push(remote.mesh);
-    }
-    if (targetIndex === -1) {
-      hittableTargets.push(remote.mesh);
-    }
-    return;
-  }
-
-  if (meshIndex !== -1) {
-    remoteMeshes.splice(meshIndex, 1);
-  }
-  if (targetIndex !== -1) {
-    hittableTargets.splice(targetIndex, 1);
-  }
-}
-
-/*
- * ---------------------------------------------------------------------------
- * Shooting visuals
- * ---------------------------------------------------------------------------
- * One Raycaster is reused for aim feedback and firing. Tracers come from a
- * fixed-size pool so firing never allocates geometry or materials at runtime.
- */
-const SHOOT_COOLDOWN_MS = 200;
-const TRACER_RANGE = 100;
-const TRACER_LIFETIME = 0.05;
-const TRACER_POOL_SIZE = 16;
-
-const raycaster = new THREE.Raycaster();
-raycaster.far = TRACER_RANGE;
-
-// Reused scratch vectors; no per-frame Vector3 construction.
-const tracerEnd = new THREE.Vector3();
-const remoteShotOrigin = new THREE.Vector3();
-const remoteShotDirection = new THREE.Vector3();
-const remoteTracerEnd = new THREE.Vector3();
-const impactNormal = new THREE.Vector3();
-const impactInstanceMatrix = new THREE.Matrix4();
-const impactNormalMatrix = new THREE.Matrix3();
-
-function setImpactNormal(
-  hit: THREE.Intersection,
-  target: THREE.Vector3,
-): void {
-  if (!hit.face) {
-    target.copy(cameraDirection).negate();
-    return;
-  }
-
-  target.copy(hit.face.normal);
-  if (
-    hit.object instanceof THREE.InstancedMesh &&
-    hit.instanceId !== undefined
-  ) {
-    hit.object.getMatrixAt(hit.instanceId, impactInstanceMatrix);
-    impactNormalMatrix.getNormalMatrix(impactInstanceMatrix);
-    target.applyMatrix3(impactNormalMatrix).normalize();
-    return;
-  }
-
-  target.transformDirection(hit.object.matrixWorld);
-}
-
-const tracerMaterial = new THREE.LineBasicMaterial({
-  color: 0x66ffff,
-  transparent: true,
-  opacity: 0.85,
-  depthWrite: false,
-});
-
-interface Tracer {
-  line: THREE.Line;
-  remaining: number;
-}
-
-const tracers: Tracer[] = [];
-
-for (let i = 0; i < TRACER_POOL_SIZE; i += 1) {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(new Float32Array(6), 3),
-  );
-
-  const line = new THREE.Line(geometry, tracerMaterial);
-  line.visible = false;
-  line.frustumCulled = false;
-  scene.add(line);
-
-  tracers.push({ line, remaining: 0 });
-}
-
-let nextTracerIndex = 0;
-
-function spawnTracer(from: THREE.Vector3, to: THREE.Vector3): void {
-  const tracer = tracers[nextTracerIndex];
-  nextTracerIndex = (nextTracerIndex + 1) % tracers.length;
-
-  const positions = tracer.line.geometry.getAttribute(
-    "position",
-  ) as THREE.BufferAttribute;
-  positions.setXYZ(0, from.x, from.y, from.z);
-  positions.setXYZ(1, to.x, to.y, to.z);
-  positions.needsUpdate = true;
-
-  tracer.remaining = TRACER_LIFETIME;
-  tracer.line.visible = true;
-}
-
-function updateTracers(delta: number): void {
-  for (const tracer of tracers) {
-    if (!tracer.line.visible) {
-      continue;
-    }
-
-    tracer.remaining -= delta;
-    if (tracer.remaining <= 0) {
-      tracer.line.visible = false;
-    }
-  }
-}
-
-const SPARK_POOL_SIZE = 36;
-const SPARK_LIFETIME = 0.2;
-const SPARK_SIZE = 0.09;
-const SPARK_GRAVITY = -9;
-
-const sparkPositions = new Float32Array(SPARK_POOL_SIZE * 3);
-const sparkColors = new Float32Array(SPARK_POOL_SIZE * 3);
-const sparkBaseColors = new Float32Array(SPARK_POOL_SIZE * 3);
-const sparkVelocities = new Float32Array(SPARK_POOL_SIZE * 3);
-const sparkRemaining = new Float32Array(SPARK_POOL_SIZE);
-
-for (let i = 0; i < SPARK_POOL_SIZE; i += 1) {
-  sparkPositions[i * 3 + 1] = -100;
-}
-
-const sparkGeometry = new THREE.BufferGeometry();
-const sparkPositionAttribute = new THREE.BufferAttribute(
-  sparkPositions,
-  3,
-).setUsage(THREE.DynamicDrawUsage);
-const sparkColorAttribute = new THREE.BufferAttribute(
-  sparkColors,
-  3,
-).setUsage(THREE.DynamicDrawUsage);
-sparkGeometry.setAttribute("position", sparkPositionAttribute);
-sparkGeometry.setAttribute("color", sparkColorAttribute);
-
-const sparkMaterial = new THREE.PointsMaterial({
-  size: SPARK_SIZE,
-  sizeAttenuation: true,
-  vertexColors: true,
-  transparent: true,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
-  toneMapped: false,
-});
-
-const impactSparks = new THREE.Points(sparkGeometry, sparkMaterial);
-impactSparks.frustumCulled = false;
-scene.add(impactSparks);
-
-let sparkCursor = 0;
-let sparksDirty = false;
-
-function spawnImpactSparks(point: THREE.Vector3, normal: THREE.Vector3): void {
-  const count = 3 + Math.floor(Math.random() * 3);
-
-  for (let particle = 0; particle < count; particle += 1) {
-    const index = sparkCursor;
-    sparkCursor = (sparkCursor + 1) % SPARK_POOL_SIZE;
-    const offset = index * 3;
-
-    sparkPositions[offset] = point.x + normal.x * 0.02;
-    sparkPositions[offset + 1] = point.y + normal.y * 0.02;
-    sparkPositions[offset + 2] = point.z + normal.z * 0.02;
-
-    const speed = 1.5 + Math.random() * 2.5;
-    sparkVelocities[offset] =
-      (normal.x * 0.8 + (Math.random() - 0.5) * 1.3) * speed;
-    sparkVelocities[offset + 1] =
-      (normal.y * 0.8 + Math.random() * 1.1) * speed;
-    sparkVelocities[offset + 2] =
-      (normal.z * 0.8 + (Math.random() - 0.5) * 1.3) * speed;
-
-    const yellow = Math.random() < 0.45;
-    sparkBaseColors[offset] = yellow ? 1 : 0.2;
-    sparkBaseColors[offset + 1] = 1;
-    sparkBaseColors[offset + 2] = yellow ? 0.3 : 1;
-    sparkColors[offset] = sparkBaseColors[offset];
-    sparkColors[offset + 1] = sparkBaseColors[offset + 1];
-    sparkColors[offset + 2] = sparkBaseColors[offset + 2];
-
-    sparkRemaining[index] = SPARK_LIFETIME;
-  }
-
-  sparksDirty = true;
-}
-
-function updateImpactSparks(delta: number): void {
-  let changed = false;
-
-  for (let index = 0; index < SPARK_POOL_SIZE; index += 1) {
-    if (sparkRemaining[index] <= 0) {
-      continue;
-    }
-
-    const offset = index * 3;
-    sparkRemaining[index] -= delta;
-
-    if (sparkRemaining[index] <= 0) {
-      sparkColors[offset] = 0;
-      sparkColors[offset + 1] = 0;
-      sparkColors[offset + 2] = 0;
-      sparkPositions[offset + 1] = -100;
-      changed = true;
-      continue;
-    }
-
-    sparkVelocities[offset + 1] += SPARK_GRAVITY * delta;
-    sparkPositions[offset] += sparkVelocities[offset] * delta;
-    sparkPositions[offset + 1] += sparkVelocities[offset + 1] * delta;
-    sparkPositions[offset + 2] += sparkVelocities[offset + 2] * delta;
-
-    if (sparkPositions[offset + 1] < 0.01) {
-      sparkPositions[offset + 1] = 0.01;
-      sparkVelocities[offset + 1] *= -0.35;
-      sparkVelocities[offset] *= 0.7;
-      sparkVelocities[offset + 2] *= 0.7;
-    }
-
-    const fade = sparkRemaining[index] / SPARK_LIFETIME;
-    sparkColors[offset] = sparkBaseColors[offset] * fade;
-    sparkColors[offset + 1] = sparkBaseColors[offset + 1] * fade;
-    sparkColors[offset + 2] = sparkBaseColors[offset + 2] * fade;
-    changed = true;
-  }
-
-  if (changed || sparksDirty) {
-    sparkPositionAttribute.needsUpdate = true;
-    sparkColorAttribute.needsUpdate = true;
-    sparksDirty = false;
-  }
-}
-
-const socketUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
-const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
-  socketUrl,
-  { autoConnect: false },
-);
-
-function setConnectionStatus(text: string): void {
-  if (connectionStatus) {
-    connectionStatus.textContent = text;
-  }
-}
-
-function setPingLabel(text: string): void {
-  if (pingLabel) {
-    pingLabel.textContent = text;
-  }
-}
-
-function measurePing(): void {
-  if (!socket.connected) {
-    return;
-  }
-
-  const request = ++pingRequest;
-  const startedAt = performance.now();
-  const timeout = window.setTimeout(() => {
-    if (request === pingRequest) {
-      setPingLabel("PING --");
-    }
-  }, 3000);
-
-  socket.emit("client_ping", () => {
-    if (request !== pingRequest) {
-      return;
-    }
-    window.clearTimeout(timeout);
-    const rtt = Math.round(performance.now() - startedAt);
-    setPingLabel(`PING ${rtt}ms`);
+  socket.emit("queue_join", {
+    mode: nextMode,
+    name: hud.getPlayerName(),
   });
 }
 
-window.setInterval(measurePing, 2000);
-
-function spawnRemotePlayer(state: PlayerState): RemotePlayer {
-  const existing = remotePlayers.get(state.id);
-  if (existing) {
-    return existing;
+function ensureSocket(): GameSocket {
+  if (socket) {
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
   }
-
-  const mesh = new THREE.Mesh(remoteGeometry, remoteMaterial);
-  mesh.position.set(
-    state.position.x,
-    state.position.y + PLAYER_HEIGHT / 2,
-    state.position.z,
-  );
-
-  const targetQuaternion = new THREE.Quaternion().setFromAxisAngle(
-    WORLD_UP,
-    state.rotation.y,
-  );
-  mesh.quaternion.copy(targetQuaternion);
-
-  const alive = state.health > 0;
-  mesh.visible = alive;
-
-  scene.add(mesh);
-
-  const remote: RemotePlayer = {
-    mesh,
-    targetPosition: mesh.position.clone(),
-    targetQuaternion,
-  };
-  remotePlayers.set(state.id, remote);
-  setRemoteAlive(remote, alive);
-  return remote;
+  const client = io(SERVER_URL, {
+    transports: ["websocket", "polling"],
+  }) as GameSocket;
+  socket = client;
+  bindSocket(client);
+  return client;
 }
 
-function updateRemoteTarget(state: PlayerState): void {
-  const remote = remotePlayers.get(state.id) ?? spawnRemotePlayer(state);
+function bindSocket(client: GameSocket): void {
+  client.on("connect", () => {
+    if (socket !== client) {
+      return;
+    }
+    hud.setConnection("ONLINE");
+    if (searchMode && !active) {
+      joinQueue(searchMode);
+    }
+  });
 
-  remote.targetPosition.set(
-    state.position.x,
-    state.position.y + PLAYER_HEIGHT / 2,
-    state.position.z,
-  );
-  remote.targetQuaternion.setFromAxisAngle(WORLD_UP, state.rotation.y);
+  client.on("connect_error", () => {
+    if (socket !== client) {
+      return;
+    }
+    hud.setConnection("OFFLINE");
+    if (searchMode && !active) {
+      hud.updateSearching("SERVER UNREACHABLE — RETRYING...");
+    }
+  });
 
-  // Death events hide instantly; snapshots also enforce it for late joiners.
-  if (state.health <= 0) {
-    setRemoteAlive(remote, false);
-  }
-}
+  client.on("disconnect", () => {
+    if (socket !== client) {
+      return;
+    }
+    hud.setConnection("OFFLINE");
+    if (online && active) {
+      leaveToMenu();
+      hud.setConnection("CONNECTION LOST");
+      return;
+    }
+    if (searchMode) {
+      hud.updateSearching("DISCONNECTED — RECONNECTING...");
+    }
+  });
 
-function removeRemotePlayer(id: string): void {
-  const remote = remotePlayers.get(id);
-  if (!remote) {
-    return;
-  }
+  client.on("queue_status", (payload) => {
+    if (socket !== client || active || !searchMode) {
+      return;
+    }
+    const humans = Math.min(payload.players, MAX_MATCH_PLAYERS);
+    hud.updateSearching(
+      `${humans}/${MAX_MATCH_PLAYERS} IN QUEUE  ·  BOTS FILL IN ${payload.fillsWithBotsIn}s`,
+    );
+  });
 
-  scene.remove(remote.mesh);
-  remotePlayers.delete(id);
-
-  const meshIndex = remoteMeshes.indexOf(remote.mesh);
-  if (meshIndex !== -1) {
-    remoteMeshes.splice(meshIndex, 1);
-  }
-
-  const targetIndex = hittableTargets.indexOf(remote.mesh);
-  if (targetIndex !== -1) {
-    hittableTargets.splice(targetIndex, 1);
-  }
-  // Geometry/material are shared, so they stay alive for future players.
-}
-
-function clearRemotePlayers(): void {
-  for (const id of [...remotePlayers.keys()]) {
-    removeRemotePlayer(id);
-  }
-}
-
-let receivedInitialState = false;
-
-socket.on("connect", () => {
-  setConnectionStatus("ONLINE");
-
-  // A new socket means the server created a fresh, full-health player.
-  localDead = false;
-  reconciling = false;
-  pingRequest += 1;
-  setPingLabel("PING --");
-  measurePing();
-  deathOverlay?.classList.remove("visible");
-  gun.object.visible = true;
-  setLocalHealth(MAX_HEALTH);
-});
-
-socket.on("disconnect", () => {
-  setConnectionStatus("OFFLINE");
-  clearRemotePlayers();
-  receivedInitialState = false;
-  reconciling = false;
-  pingRequest += 1;
-  setPingLabel("PING --");
-
-  lastTimerText = "--:--";
-  lastTimerLow = false;
-  if (matchTimer) {
-    matchTimer.textContent = lastTimerText;
-    matchTimer.classList.remove("low");
-  }
-  scoreboardSignature = "";
-  scoreboardRows?.replaceChildren();
-});
-
-socket.on("connect_error", () => {
-  setConnectionStatus("SERVER OFFLINE");
-  pingRequest += 1;
-  setPingLabel("PING --");
-});
-
-socket.on("game_state", ({ players, matchTime }) => {
-  const seen = new Set<string>();
-
-  for (const state of players) {
-    if (state.id === socket.id) {
-      // The server assigns the spawn point, so adopt it once on join/rejoin.
-      if (!receivedInitialState) {
-        player.reset(state.position);
-        reconciling = false;
-      } else if (!localDead) {
-        const dx = state.position.x - player.position.x;
-        const dy = state.position.y - player.position.y;
-        const dz = state.position.z - player.position.z;
-        const distanceSq = dx * dx + dy * dy + dz * dz;
-
-        if (distanceSq > RECONCILE_SNAP_DISTANCE_SQ) {
-          player.snapTo(state.position);
-          reconciling = false;
-        } else if (distanceSq > 1e-8) {
-          reconcileTarget.set(
-            state.position.x,
-            state.position.y,
-            state.position.z,
-          );
-          reconciling = true;
-        } else {
-          reconciling = false;
-        }
+  client.on("game_state", (payload) => {
+    if (socket !== client) {
+      return;
+    }
+    if (!active || !online) {
+      if (searchMode) {
+        startOnlineMatch(payload);
       }
-
-      setLocalHealth(state.health);
-      continue;
+      return;
     }
+    syncState(payload, false, lastDelta);
+  });
 
-    seen.add(state.id);
-    updateRemoteTarget(state);
+  client.on("player_shoot", (payload) => {
+    if (socket !== client || payload.shooterId === playerId) {
+      return;
+    }
+    effects.spawnRemoteShot(
+      payload.origin,
+      payload.direction,
+      payload.weapon,
+    );
+  });
+
+  client.on("player_hit", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    hud.flashHit(payload.headshot);
+    audio.playHit(payload.headshot);
+  });
+
+  client.on("player_died", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    const killer = payload.killerId
+      ? (currentState?.players.find(
+          (player) => player.id === payload.killerId,
+        ) ?? null)
+      : null;
+    const victim =
+      currentState?.players.find(
+        (player) => player.id === payload.playerId,
+      ) ?? null;
+    hud.addKillFeed(
+      killer?.name ?? "WORLD",
+      victim?.name ?? "OPERATOR",
+      payload.headshot,
+    );
+    if (payload.playerId === playerId) {
+      dead = true;
+      respawnAt = payload.respawnAt;
+      hud.showDeath();
+      hud.updateDeathCountdown(respawnAt);
+      audio.playDeath();
+    }
+  });
+
+  client.on("player_respawned", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    if (payload.id === playerId) {
+      handleLocalRespawn(payload);
+    } else {
+      remotes.respawn(payload);
+    }
+  });
+
+  client.on("player_left", (payload) => {
+    if (socket !== client || payload === playerId) {
+      return;
+    }
+    remotes.remove(payload);
+  });
+
+  client.on("match_over", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    handleMatchOver(
+      payload.winner,
+      payload.scores,
+      payload.restartIn,
+      currentState,
+    );
+  });
+}
+
+function startOnlineMatch(payload: GameStatePayload): void {
+  if (active) {
+    return;
+  }
+  const local = payload.players.find(
+    (player) => player.id === socket?.id,
+  );
+  if (!local) {
+    return;
   }
 
-  // Snapshots are authoritative: remove capsules the server no longer knows.
-  for (const id of [...remotePlayers.keys()]) {
-    if (!seen.has(id)) {
-      removeRemotePlayer(id);
+  searchMode = null;
+  active = true;
+  online = true;
+  paused = false;
+  matchOver = false;
+  dead = false;
+  respawnAt = 0;
+  playerId = local.id;
+  mode = payload.mode;
+  rules = payload.rules;
+  currentState = payload;
+  lastShotAt = 0;
+  triggerWasDown = false;
+  lastWeapon = local.weapon;
+
+  localPlayer.setRules(rules);
+  localPlayer.reset(local.position);
+  yaw = local.rotation.y;
+  pitch = 0;
+  gun.setWeapon(local.weapon);
+  gun.object.visible = true;
+  remotes.clear();
+  hud.startMatch();
+  hud.setConnection("ONLINE");
+  document.body.classList.add("playing");
+  input.clear();
+  input.setEnabled(true);
+  syncState(payload, false, 1 / 60);
+  requestPointerLock();
+}
+
+function syncState(
+  payload: GameStatePayload,
+  authoritative: boolean,
+  delta: number,
+): void {
+  const wasMatchOver = matchOver;
+  currentState = payload;
+  mode = payload.mode;
+  rules = payload.rules;
+  localPlayer.setRules(rules);
+
+  if (payload.matchOver) {
+    if (!matchOver) {
+      matchOver = true;
+      paused = false;
+      dead = false;
+      hud.hidePause();
+      hud.hideDeath();
+      hud.showMatchOver(
+        payload.winner ?? "draw",
+        payload.scores,
+        MATCH_RESTART_MS,
+        payload,
+      );
+      input.setEnabled(false);
+      input.clear();
+      triggerWasDown = false;
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    }
+  } else if (wasMatchOver) {
+    matchOver = false;
+    dead = false;
+    respawnAt = 0;
+    hud.hideMatchOver();
+    hud.hideDeath();
+    input.setEnabled(true);
+    audio.playSpawn();
+    requestPointerLock();
+  }
+
+  const local = payload.players.find((player) => player.id === playerId);
+  if (!local) {
+    remotes.sync(payload.players, playerId);
+    return;
+  }
+
+  if (local.health <= 0) {
+    if (!dead && !matchOver) {
+      dead = true;
+      respawnAt = Date.now() + 3000;
+      hud.showDeath();
+      audio.playDeath();
+    }
+  } else if (dead) {
+    handleLocalRespawn(local);
+  }
+
+  targetVector.set(
+    local.position.x,
+    local.position.y,
+    local.position.z,
+  );
+  if (authoritative) {
+    localPlayer.snapTo(local.position);
+  } else {
+    const distance = localPlayer.position.distanceTo(targetVector);
+    if (distance > 3 || local.health <= 0) {
+      localPlayer.snapTo(local.position);
+    } else {
+      const blend = 1 - Math.exp(-18 * Math.max(delta, 1 / 120));
+      localPlayer.smoothTo(targetVector, blend);
     }
   }
 
-  updateMatchTimer(matchTime);
-  updateScoreboard(players);
-  receivedInitialState = true;
-});
-
-socket.on("player_joined", (state) => {
-  if (state.id === socket.id) {
-    return;
-  }
-  spawnRemotePlayer(state);
-});
-
-socket.on("player_left", (id) => {
-  removeRemotePlayer(id);
-});
-
-socket.on("player_shoot", (payload) => {
-  if (payload.shooterId === socket.id) {
-    return;
+  if (local.weapon !== lastWeapon) {
+    lastWeapon = local.weapon;
+    gun.setWeapon(local.weapon);
+    lastShotAt = 0;
   }
 
-  // Remote clients only need the tracer; damage is resolved on the server.
-  remoteShotOrigin.set(
-    payload.origin.x,
-    payload.origin.y,
-    payload.origin.z,
+  hud.setHealth(local.health);
+  hud.updateWeapon(
+    local.weapon,
+    local.ammo,
+    local.reserveAmmo,
+    local.reloading,
   );
-  remoteShotDirection.set(
-    payload.direction.x,
-    payload.direction.y,
-    payload.direction.z,
-  );
-  remoteTracerEnd
-    .copy(remoteShotOrigin)
-    .addScaledVector(remoteShotDirection, TRACER_RANGE);
+  hud.updateTimer(payload.matchTime);
+  hud.updateTeam(payload);
+  hud.updateScoreboard(payload.players, playerId);
+  remotes.sync(payload.players, playerId);
+}
 
-  raycaster.set(remoteShotOrigin, remoteShotDirection);
-  const worldHits = raycaster.intersectObjects(staticMeshes, false);
-  if (worldHits.length > 0) {
-    remoteTracerEnd.copy(worldHits[0].point);
+function handleLocalRespawn(player: PlayerState): void {
+  dead = false;
+  respawnAt = 0;
+  hud.hideDeath();
+  localPlayer.reset(player.position);
+  yaw = player.rotation.y;
+  pitch = 0;
+  lastWeapon = player.weapon;
+  gun.setWeapon(player.weapon);
+  if (!matchOver) {
+    audio.playSpawn();
+    input.setEnabled(true);
   }
+}
 
-  spawnTracer(remoteShotOrigin, remoteTracerEnd);
-  audio.playRemoteShoot();
-});
+function handleMatchOver(
+  winner: "alpha" | "bravo" | "draw",
+  scores: Record<"alpha" | "bravo", number>,
+  restartIn: number,
+  state: GameStatePayload | null,
+): void {
+  if (!active) {
+    return;
+  }
+  if (!state) {
+    state = {
+      players: [],
+      matchTime: 0,
+      mode,
+      scores,
+      rules,
+      matchOver: true,
+      winner,
+    };
+  }
+  matchOver = true;
+  paused = false;
+  dead = false;
+  hud.hidePause();
+  hud.hideDeath();
+  hud.showMatchOver(winner, scores, restartIn, state);
+  input.setEnabled(false);
+  input.clear();
+  triggerWasDown = false;
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+}
 
-socket.on("player_hit", () => {
-  // The server only sends this to the shooter after confirming a hit.
-  flashHitMarker();
-  audio.playHit();
-});
+function requestReload(): void {
+  const local = localState();
+  if (!local || local.health <= 0 || local.reloading) {
+    return;
+  }
+  const spec = WEAPONS[local.weapon];
+  if (local.ammo >= spec.magazine) {
+    return;
+  }
+  if (local.reserveAmmo <= 0 && !rules.infiniteAmmo) {
+    return;
+  }
+  gun.reload(spec.reloadTimeMs);
+  audio.playReload();
+  if (offlineGame) {
+    offlineGame.reload(playerId, Date.now());
+  } else {
+    socket?.emit("player_reload");
+  }
+}
 
-socket.on("player_died", ({ playerId }) => {
-  audio.playDeath();
+function requestWeapon(weapon: WeaponId): void {
+  if (weapon === lastWeapon) {
+    return;
+  }
+  lastWeapon = weapon;
+  lastShotAt = 0;
+  gun.setWeapon(weapon);
+  if (offlineGame) {
+    offlineGame.selectWeapon(playerId, weapon);
+  } else {
+    socket?.emit("player_switch_weapon", weapon);
+  }
+}
 
-  if (playerId === socket.id) {
-    localDead = true;
-    reconciling = false;
-    setLocalHealth(0);
-    player.velocity.set(0, 0, 0);
-    input.clear();
-    gun.object.visible = false;
-    deathOverlay?.classList.add("visible");
+function handleInputActions(): void {
+  if (input.consumeReload()) {
+    requestReload();
+  }
+  if (input.consumeSwitch()) {
+    requestWeapon(nextWeapon(lastWeapon));
+  }
+  const slot = input.consumeWeaponSlot();
+  if (slot) {
+    requestWeapon(slot);
+  }
+}
+
+function attemptShoot(): void {
+  const local = localState();
+  if (!local || local.health <= 0 || matchOver || dead) {
+    return;
+  }
+  if (local.reloading) {
+    return;
+  }
+  if (local.ammo <= 0) {
+    audio.playEmpty();
+    requestReload();
     return;
   }
 
-  const remote = remotePlayers.get(playerId);
-  if (remote) {
-    setRemoteAlive(remote, false);
-  }
-});
+  camera.getWorldDirection(lookDirection);
+  gun.fire();
+  audio.playShoot(local.weapon);
+  effects.fireLocal(camera.position, lookDirection, remotes);
 
-socket.on("player_respawned", (state) => {
-  if (state.id === socket.id) {
-    localDead = false;
-    reconciling = false;
-    player.reset(state.position);
-    setLocalHealth(state.health);
-    deathOverlay?.classList.remove("visible");
-    gun.object.visible = true;
+  if (offlineGame) {
+    offlineGame.shoot(
+      playerId,
+      lookDirection,
+      local.weapon,
+      Date.now(),
+    );
+  } else {
+    socket?.emit("player_shoot", {
+      direction: {
+        x: lookDirection.x,
+        y: lookDirection.y,
+        z: lookDirection.z,
+      },
+      weapon: local.weapon,
+    });
+  }
+}
+
+function sendInput(now: number): void {
+  if (!socket?.connected) {
     return;
   }
-
-  const remote = remotePlayers.get(state.id) ?? spawnRemotePlayer(state);
-  remote.mesh.position.set(
-    state.position.x,
-    state.position.y + PLAYER_HEIGHT / 2,
-    state.position.z,
+  const elapsed = Math.max(
+    1 / 120,
+    Math.min(0.1, (now - lastInputSentAt) / 1000),
   );
-  remote.targetPosition.copy(remote.mesh.position);
-  remote.targetQuaternion.setFromAxisAngle(WORLD_UP, state.rotation.y);
-  remote.mesh.quaternion.copy(remote.targetQuaternion);
-  setRemoteAlive(remote, true);
-});
-
-socket.connect();
-
-/*
- * ---------------------------------------------------------------------------
- * Resize handling
- * ---------------------------------------------------------------------------
- * Keep the camera aspect and drawing buffer in sync with the viewport. The
- * pixel-ratio clamp is reapplied in case the window moves to another display.
- */
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-/*
- * ---------------------------------------------------------------------------
- * Animation loop
- * ---------------------------------------------------------------------------
- * The clock supplies frame-rate independent delta time. `player.update` is the
- * client-prediction step: it runs immediately on local input. The server sends
- * authoritative snapshots at 20hz, and remote capsules interpolate toward them.
- */
-const clock = new THREE.Clock();
-const cameraDirection = new THREE.Vector3();
-let lastInputSentAt = 0;
-let inputSequence = 0;
-let lastShotAt = 0;
-let aimingAtPlayer = false;
-
-function sendPlayerInput(now: number): void {
-  if (localDead || !socket.connected || now - lastInputSentAt < SEND_INTERVAL_MS) {
-    return;
-  }
-
-  const elapsedMs =
-    lastInputSentAt === 0 ? SEND_INTERVAL_MS : now - lastInputSentAt;
-  lastInputSentAt = now;
-  inputSequence += 1;
-
-  // Yaw drives shared movement; pitch is stored server-side for rotation.
-  const yaw = player.yaw;
-  const pitch = Math.asin(
-    Math.max(-1, Math.min(1, cameraDirection.y)),
-  );
-
-  // Position is intentionally absent: the server owns it via simulation.
-  socket.emit("player_input", {
-    sequence: inputSequence,
+  const payload: PlayerInputPayload = {
     forward: input.isMovingForward(),
     backward: input.isMovingBackward(),
     left: input.isMovingLeft(),
     right: input.isMovingRight(),
     jump: input.isJumping(),
-    delta: Math.min(elapsedMs, 100) / 1000,
     yaw,
     pitch,
-  });
+    ads: input.isAiming(),
+    sequence: inputSequence + 1,
+    delta: elapsed,
+  };
+  inputSequence += 1;
+  lastInputSentAt = now;
+  socket.emit("player_input", payload);
 }
 
-renderer.setAnimationLoop(() => {
-  const safeDelta = Math.min(clock.getDelta(), 0.05);
+function requestPointerLock(): void {
+  const target = canvas;
+  if (!target || IS_TOUCH_DEVICE || document.pointerLockElement === target) {
+    return;
+  }
+  try {
+    const result = target.requestPointerLock() as unknown as
+      | Promise<void>
+      | undefined;
+    if (result && typeof result.catch === "function") {
+      result.catch(() => undefined);
+    }
+  } catch {
+    return;
+  }
+}
 
-  camera.getWorldDirection(cameraDirection);
-  if (!localDead) {
-    player.update(safeDelta, input, cameraDirection);
+function pauseGame(): void {
+  if (!active || paused || matchOver) {
+    return;
+  }
+  paused = true;
+  triggerWasDown = false;
+  input.setEnabled(false);
+  input.clear();
+  hud.showPause();
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+}
 
-    if (reconciling) {
-      // 0.2 per 60fps frame, converted to a frame-rate independent blend.
-      const lerpFactor =
-        1 - Math.pow(1 - RECONCILE_LERP, safeDelta * 60);
-      player.smoothTo(reconcileTarget, lerpFactor);
-      if (
-        player.position.distanceToSquared(reconcileTarget) <
-        RECONCILE_DONE_SQ
-      ) {
-        player.smoothTo(reconcileTarget, 1);
-        reconciling = false;
+function resumeGame(): void {
+  if (!active) {
+    return;
+  }
+  paused = false;
+  hud.hidePause();
+  if (!matchOver) {
+    input.setEnabled(true);
+    requestPointerLock();
+  }
+}
+
+function cancelSearch(): void {
+  if (active) {
+    return;
+  }
+  searchMode = null;
+  socket?.emit("queue_leave");
+  hud.showMenu();
+  hud.setConnection(socket?.connected ? "ONLINE" : "LOCAL");
+}
+
+function leaveToMenu(): void {
+  const previous = socket;
+  socket = null;
+  searchMode = null;
+  active = false;
+  online = false;
+  paused = false;
+  matchOver = false;
+  dead = false;
+  respawnAt = 0;
+  playerId = "";
+  currentState = null;
+  offlineGame = null;
+  triggerWasDown = false;
+  lastShotAt = 0;
+  lastWeapon = "rifle";
+  hasLockedOnce = false;
+
+  if (previous) {
+    previous.emit("queue_leave");
+    previous.disconnect();
+  }
+
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+  input.setEnabled(false);
+  input.clear();
+  remotes.clear();
+  gun.object.visible = false;
+  localPlayer.mesh.visible = false;
+  localPlayer.reset({ x: 0, y: 0, z: 10 });
+  yaw = 0;
+  pitch = 0;
+  document.body.classList.remove("playing");
+  hud.showMenu();
+  hud.hideDeath();
+  hud.hidePause();
+  hud.hideMatchOver();
+  hud.setConnection("LOCAL");
+  hud.setPing("--");
+  hud.setLockHint(false);
+}
+
+function updateCamera(delta: number): void {
+  if (!active) {
+    gun.object.visible = false;
+    camera.position.set(0, 2.5, 14);
+    camera.lookAt(0, 1.4, 0);
+    hud.setAiming(false, false);
+    if (camera.fov !== 75) {
+      camera.fov = 75;
+      camera.updateProjectionMatrix();
+    }
+    return;
+  }
+
+  const local = localState();
+  if (local) {
+    camera.position.set(
+      localPlayer.position.x,
+      localPlayer.position.y + EYE_HEIGHT,
+      localPlayer.position.z,
+    );
+  }
+  camera.rotation.set(pitch, yaw, 0, "YXZ");
+
+  const aiming =
+    !paused && !matchOver && !dead && input.isAiming();
+  const scoped = aiming && lastWeapon === "sniper";
+  const spec = WEAPONS[lastWeapon];
+  const targetFov = aiming ? spec.adsFov : 75;
+  const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 14, delta);
+  if (Math.abs(nextFov - camera.fov) > 0.02) {
+    camera.fov = nextFov;
+    camera.updateProjectionMatrix();
+  }
+
+  hud.setAiming(aiming, scoped);
+  gun.setAiming(aiming);
+  gun.update(delta);
+  gun.object.visible = !matchOver && !dead;
+}
+
+function animate(): void {
+  window.requestAnimationFrame(animate);
+  const delta = Math.min(clock.getDelta(), 0.05);
+  lastDelta = delta;
+  const now = performance.now();
+  const canControl =
+    active && !paused && !matchOver && !dead && !searchMode;
+
+  if (canControl) {
+    const look = input.consumeLookDelta();
+    if (look.x !== 0 || look.y !== 0) {
+      const sensitivity = IS_TOUCH_DEVICE ? 0.0032 : 0.0022;
+      yaw -= look.x * sensitivity;
+      pitch = clamp(
+        pitch - look.y * sensitivity,
+        -Math.PI / 2 + 0.02,
+        Math.PI / 2 - 0.02,
+      );
+    }
+
+    handleInputActions();
+
+    if (online && socket?.connected) {
+      if (now - lastInputSentAt >= 1000 / NETWORK_TICK_RATE) {
+        sendInput(now);
       }
     }
+
+    const shooting = input.isShooting();
+    const local = localState();
+    const spec = WEAPONS[lastWeapon];
+    const canFire =
+      shooting &&
+      local !== null &&
+      local.health > 0 &&
+      !local.reloading &&
+      (document.pointerLockElement === canvas || IS_TOUCH_DEVICE);
+    if (
+      canFire &&
+      now - lastShotAt >= spec.fireIntervalMs &&
+      (spec.automatic || !triggerWasDown)
+    ) {
+      attemptShoot();
+      lastShotAt = now;
+    }
+    triggerWasDown = shooting;
+  } else {
+    input.consumeLookDelta();
+    triggerWasDown = false;
   }
 
-  // Lock the camera to the player's eye position. Look rotation is untouched.
-  camera.position.set(
-    player.position.x,
-    player.position.y + EYE_HEIGHT,
-    player.position.z,
-  );
-
-  /*
-   * Single aim ray per frame, shared by the crosshair feedback and firing.
-   * Raycaster.set copies into its internal ray, so this does not allocate.
-   */
-  raycaster.set(camera.position, cameraDirection);
-  const hits = raycaster.intersectObjects(hittableTargets, false);
-  const hitsPlayer =
-    hits.length > 0 &&
-    remoteMeshes.includes(hits[0].object as THREE.Mesh);
-
-  // Only touch the DOM when the hover state actually changes.
-  if (hitsPlayer !== aimingAtPlayer) {
-    aimingAtPlayer = hitsPlayer;
-    crosshair?.classList.toggle("hit", aimingAtPlayer);
+  if (offlineGame && active && !paused) {
+    if (canControl) {
+      offlineGame.setInput(
+        playerId,
+        {
+          forward: input.isMovingForward(),
+          backward: input.isMovingBackward(),
+          left: input.isMovingLeft(),
+          right: input.isMovingRight(),
+          jump: input.isJumping(),
+          yaw,
+          ads: input.isAiming(),
+        },
+        0,
+        Date.now(),
+      );
+      offlineGame.setRotation(playerId, pitch, yaw);
+    }
+    offlineGame.update(Date.now(), delta);
+    syncState(offlineGame.getState(), true, delta);
   }
 
-  const now = performance.now();
-  sendPlayerInput(now);
+  if (dead && respawnAt > 0) {
+    hud.updateDeathCountdown(respawnAt);
+  }
+  if (matchOver) {
+    hud.updateMatchRestart();
+  }
 
   if (
-    !localDead &&
-    input.isShooting() &&
-    controls.isLocked &&
-    now - lastShotAt >= SHOOT_COOLDOWN_MS
+    online &&
+    socket?.connected &&
+    now - lastPingAt > 2000 &&
+    !pingInFlight
   ) {
-    lastShotAt = now;
-    gun.fire();
-    audio.playShoot();
-
-    if (hits.length > 0) {
-      const impact = hits[0];
-      tracerEnd.copy(impact.point);
-      setImpactNormal(impact, impactNormal);
-      spawnImpactSparks(impact.point, impactNormal);
-    } else {
-      tracerEnd
-        .copy(camera.position)
-        .addScaledVector(cameraDirection, TRACER_RANGE);
-    }
-    spawnTracer(camera.position, tracerEnd);
-
-    socket.emit("player_shoot", {
-      origin: {
-        x: camera.position.x,
-        y: camera.position.y,
-        z: camera.position.z,
-      },
-      direction: {
-        x: cameraDirection.x,
-        y: cameraDirection.y,
-        z: cameraDirection.z,
-      },
+    lastPingAt = now;
+    pingInFlight = true;
+    const sentAt = performance.now();
+    socket.emit("client_ping", () => {
+      pingInFlight = false;
+      hud.setPing(`${Math.round(performance.now() - sentAt)} MS`);
     });
+    window.setTimeout(() => {
+      pingInFlight = false;
+    }, 4000);
   }
 
-  gun.update(safeDelta);
-  updateTracers(safeDelta);
-  updateImpactSparks(safeDelta);
+  hud.setLockHint(
+    active &&
+      !paused &&
+      !matchOver &&
+      !searchMode &&
+      !IS_TOUCH_DEVICE &&
+      document.pointerLockElement === null,
+  );
 
-  // Frame-rate independent smoothing; at 20hz updates this removes the steps.
-  const lerpFactor = 1 - Math.exp(-REMOTE_LERP_RATE * safeDelta);
-  for (const remote of remotePlayers.values()) {
-    remote.mesh.position.lerp(remote.targetPosition, lerpFactor);
-    remote.mesh.quaternion.slerp(remote.targetQuaternion, lerpFactor);
-  }
-
+  updateCamera(delta);
+  effects.update(delta);
+  remotes.updateVisuals(delta);
   renderer.render(scene, camera);
+}
+
+function onResize(): void {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+const clock = new THREE.Clock();
+
+hud.bindMenu({
+  offlineTdm: () => startOffline("tdm"),
+  offlineFfa: () => startOffline("ffa"),
+  onlineTdm: () => startOnline("tdm"),
+  onlineFfa: () => startOnline("ffa"),
 });
+
+hud.bindGame({
+  resume: resumeGame,
+  leave: leaveToMenu,
+  cancelSearch,
+  pause: pauseGame,
+  selectWeapon: requestWeapon,
+});
+
+document.body.classList.toggle("touch", IS_TOUCH_DEVICE);
+localPlayer.reset({ x: 0, y: 0, z: 10 });
+hud.showMenu();
+hud.setConnection("LOCAL");
+hud.setPing("--");
+input.setEnabled(false);
+
+canvas.addEventListener("click", () => {
+  if (active && !paused && !matchOver && !IS_TOUCH_DEVICE) {
+    requestPointerLock();
+  }
+});
+
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement === canvas) {
+    hasLockedOnce = true;
+    hud.setLockHint(false);
+    if (active && !paused && !matchOver) {
+      input.setEnabled(true);
+    }
+    return;
+  }
+
+  hud.setLockHint(active && !paused && !matchOver);
+  if (hasLockedOnce && active && !paused && !matchOver) {
+    pauseGame();
+  }
+});
+
+document.addEventListener("pointerlockerror", () => {
+  hud.setLockHint(active && !paused && !matchOver);
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && active && !paused && !matchOver) {
+    pauseGame();
+  }
+});
+
+window.addEventListener("resize", onResize);
+window.requestAnimationFrame(animate);

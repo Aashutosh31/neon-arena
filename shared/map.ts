@@ -18,7 +18,7 @@ export interface MapObject {
 
 export const FLOOR_SIZE = 50;
 export const FLOOR_Y = 0;
-export const FLOOR_COLOR = 0x050508;
+export const FLOOR_COLOR = 0x0a111c;
 
 /*
  * (x, z) is the center and y is the bottom of the box.

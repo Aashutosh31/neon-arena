@@ -2,307 +2,320 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#05080d" />
+    <meta
+      name="description"
+      content="Neon Arena is a fast browser FPS with online 4v4 team deathmatch, free-for-all, bots, and custom match rules."
+    />
     <title>Neon Arena</title>
-    <style>
-      /* Minimal reset: the game fills the viewport and never scrolls. */
-      *,
-      *::before,
-      *::after {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        background: #000000;
-      }
-
-      /* The canvas is the lowest layer; the renderer sizes it to the window. */
-      #game-canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-      }
-
-      /*
-       * HUD overlay sits above the canvas and ignores pointer events so that
-       * future mouse-look / shooting input reaches the canvas underneath.
-       */
-      #hud {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        font-family: monospace;
-        color: #00ffff;
-        user-select: none;
-      }
-
-      /* Crosshair built from two cheap CSS lines (no images, no extra RAM). */
-      #crosshair {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 16px;
-        height: 16px;
-        transform: translate(-50%, -50%);
-      }
-
-      #crosshair::before,
-      #crosshair::after {
-        content: "";
-        position: absolute;
-        background: #00ffff;
-        box-shadow: 0 0 4px #00ffff;
-      }
-
-      #crosshair::before {
-        top: 50%;
-        left: 0;
-        width: 100%;
-        height: 2px;
-        transform: translateY(-50%);
-      }
-
-      #crosshair::after {
-        top: 0;
-        left: 50%;
-        width: 2px;
-        height: 100%;
-        transform: translateX(-50%);
-      }
-
-      /* Aiming at a remote player: swap the crosshair to a threat color. */
-      #crosshair.hit::before,
-      #crosshair.hit::after {
-        background: #ff0044;
-        box-shadow: 0 0 6px #ff0044;
-      }
-
-      /* Connection indicator lives in the top-left corner for now. */
-      #connection-status {
-        position: absolute;
-        top: 16px;
-        left: 16px;
-        font-size: 12px;
-        letter-spacing: 1px;
-        opacity: 0.75;
-      }
-
-      #ping {
-        position: absolute;
-        top: 32px;
-        left: 16px;
-        font-size: 11px;
-        letter-spacing: 1px;
-        opacity: 0.55;
-      }
-
-      #match-timer {
-        position: absolute;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 30px;
-        letter-spacing: 5px;
-        text-shadow: 0 0 10px #00ffff;
-      }
-
-      #match-timer.low {
-        color: #ff0044;
-        text-shadow: 0 0 12px #ff0044;
-      }
-
-      #scoreboard {
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        min-width: 190px;
-        padding: 8px 10px;
-        border: 1px solid rgba(0, 255, 255, 0.45);
-        background: rgba(0, 0, 0, 0.55);
-        font-size: 12px;
-        letter-spacing: 1px;
-      }
-
-      .scoreboard-head,
-      .score-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 18px;
-      }
-
-      .scoreboard-head {
-        margin-bottom: 5px;
-        padding-bottom: 4px;
-        border-bottom: 1px solid rgba(0, 255, 255, 0.2);
-        font-size: 10px;
-        letter-spacing: 2px;
-        opacity: 0.55;
-      }
-
-      .score-row {
-        line-height: 1.55;
-      }
-
-      .score-name {
-        max-width: 110px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .score-name.local {
-        color: #ffff66;
-        text-shadow: 0 0 6px #ffff66;
-      }
-
-      .score-kd {
-        color: #ffffff;
-        opacity: 0.85;
-        white-space: nowrap;
-      }
-
-      /* Click-to-lock prompt; hidden by main.ts while pointer lock is active. */
-      #lock-hint {
-        position: absolute;
-        bottom: 32px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 8px 16px;
-        border: 1px solid #00ffff;
-        font-size: 13px;
-        letter-spacing: 2px;
-        text-shadow: 0 0 8px #00ffff;
-        background: rgba(0, 0, 0, 0.5);
-      }
-
-      /* Health bar: a single div width change, no images or canvas. */
-      #health-label {
-        position: absolute;
-        left: 20px;
-        bottom: 40px;
-        font-size: 12px;
-        letter-spacing: 2px;
-        text-shadow: 0 0 6px #00ffff;
-      }
-
-      #health-bar {
-        position: absolute;
-        left: 20px;
-        bottom: 20px;
-        width: 220px;
-        height: 12px;
-        border: 1px solid rgba(0, 255, 255, 0.6);
-        background: rgba(0, 0, 0, 0.55);
-      }
-
-      #health-fill {
-        width: 100%;
-        height: 100%;
-        background: #00ffff;
-        box-shadow: 0 0 8px #00ffff;
-        transition: width 80ms linear;
-      }
-
-      #health-bar.low #health-fill {
-        background: #ff0044;
-        box-shadow: 0 0 8px #ff0044;
-      }
-
-      /* Hit marker: a red X flashed for 100ms when the server confirms a hit. */
-      #hit-marker {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 20px;
-        height: 20px;
-        transform: translate(-50%, -50%) rotate(45deg);
-        opacity: 0;
-        transition: opacity 60ms linear;
-      }
-
-      #hit-marker::before,
-      #hit-marker::after {
-        content: "";
-        position: absolute;
-        background: #ff0044;
-        box-shadow: 0 0 6px #ff0044;
-      }
-
-      #hit-marker::before {
-        top: 50%;
-        left: 0;
-        width: 100%;
-        height: 2px;
-        transform: translateY(-50%);
-      }
-
-      #hit-marker::after {
-        top: 0;
-        left: 50%;
-        width: 2px;
-        height: 100%;
-        transform: translateX(-50%);
-      }
-
-      /* Death screen; .visible is toggled by main.ts. */
-      #death-overlay {
-        position: absolute;
-        inset: 0;
-        display: none;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.72);
-        text-align: center;
-      }
-
-      #death-overlay.visible {
-        display: flex;
-      }
-
-      .death-title {
-        color: #ff0044;
-        font-size: 42px;
-        letter-spacing: 8px;
-        text-shadow: 0 0 18px #ff0044;
-      }
-
-      .death-subtitle {
-        margin-top: 12px;
-        font-size: 14px;
-        letter-spacing: 3px;
-        opacity: 0.8;
-      }
-    </style>
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
+    <div id="scope"></div>
 
     <div id="hud">
-      <div id="crosshair"></div>
+      <div id="top-bar">
+        <div id="mode-label">TEAM DEATHMATCH 4V4</div>
+        <div id="match-timer">3:00</div>
+        <div id="team-scores">
+          <span class="team-score alpha">CYAN <b id="alpha-score">0</b></span>
+          <span class="score-divider">:</span>
+          <span class="team-score bravo">EMBER <b id="bravo-score">0</b></span>
+        </div>
+        <div id="ffa-status" class="hidden">FREE FOR ALL</div>
+        <div id="connection-status">LOCAL</div>
+        <div id="ping">--</div>
+      </div>
+
+      <div id="crosshair">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <i></i>
+      </div>
       <div id="hit-marker"></div>
-      <div id="connection-status">OFFLINE</div>
-      <div id="ping">PING --</div>
-      <div id="match-timer">2:00</div>
+      <div id="damage-flash"></div>
+
       <div id="scoreboard">
-        <div class="scoreboard-head">
-          <span>PLAYER</span>
+        <div class="panel-title">SCOREBOARD</div>
+        <div class="score-head">
+          <span>OPERATOR</span>
           <span>K / D</span>
         </div>
         <div id="scoreboard-rows"></div>
       </div>
-      <div id="health-label">HP 100</div>
+
+      <div id="kill-feed"></div>
+
       <div id="health-bar">
         <div id="health-fill"></div>
+        <div id="health-label">HP 100</div>
       </div>
-      <div id="lock-hint">CLICK TO PLAY</div>
-      <div id="death-overlay">
-        <div class="death-title">YOU DIED</div>
-        <div class="death-subtitle">RESPAWNING...</div>
+
+      <div id="ammo-panel">
+        <div id="weapon-name">VK-7 RIFLE</div>
+        <div id="ammo-line">
+          <span id="ammo-current">30</span>
+          <span class="ammo-separator">/</span>
+          <span id="ammo-reserve">150</span>
+        </div>
+        <div id="reload-status"></div>
+        <div id="weapon-slots"></div>
+      </div>
+
+      <button id="touch-pause" type="button" aria-label="Pause">II</button>
+      <div id="lock-hint">CLICK TO CAPTURE MOUSE</div>
+    </div>
+
+    <div id="death-overlay" class="overlay">
+      <div class="overlay-card death-card">
+        <div class="eyebrow">SIGNAL LOST</div>
+        <h2>ELIMINATED</h2>
+        <div id="death-subtitle">RESPAWNING IN 3</div>
+      </div>
+    </div>
+
+    <div id="match-over" class="overlay">
+      <div class="overlay-card result-card">
+        <div class="eyebrow">ROUND COMPLETE</div>
+        <h2 id="match-over-title">VICTORY</h2>
+        <div id="match-over-subtitle"></div>
+        <button id="match-leave" class="ghost-button match-leave" type="button">
+          RETURN TO MENU
+        </button>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay">
+      <div class="overlay-card pause-card">
+        <div class="eyebrow">MATCH PAUSED</div>
+        <h2>STANDBY</h2>
+        <p>Your match is still running. Re-enter the arena when ready.</p>
+        <div class="button-row">
+          <button id="resume-button" class="primary-button" type="button">
+            RESUME
+          </button>
+          <button id="leave-button" class="ghost-button" type="button">
+            LEAVE MATCH
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="searching" class="overlay">
+      <div class="overlay-card search-card">
+        <div class="eyebrow">MATCHMAKER</div>
+        <h2>FINDING ARENA</h2>
+        <div id="searching-mode">SEARCHING: 4V4 TDM</div>
+        <div id="searching-status">CONNECTING TO MATCHMAKER...</div>
+        <div class="search-line"><span></span></div>
+        <button id="cancel-search" class="ghost-button" type="button">
+          CANCEL
+        </button>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay visible">
+      <div class="menu-layout">
+        <section class="brand-panel">
+          <div class="eyebrow">BROWSER COMBAT SIMULATION</div>
+          <h1>NEON<br /><span>ARENA</span></h1>
+          <p class="tagline">
+            Fast, readable firefights built for low-end hardware. Five weapon
+            classes, three-minute rounds, and bots that actually contest the
+            map.
+          </p>
+          <div class="feature-row">
+            <span>5 WEAPONS</span>
+            <span>4V4 + FFA</span>
+            <span>MOD RULES</span>
+          </div>
+          <div class="controls-hint desktop-hint">
+            <span><b>WASD</b> MOVE</span>
+            <span><b>MOUSE</b> LOOK</span>
+            <span><b>LMB</b> FIRE</span>
+            <span><b>RMB</b> ADS</span>
+            <span><b>R</b> RELOAD</span>
+            <span><b>Q</b> SWAP</span>
+          </div>
+          <div class="controls-hint touch-hint">
+            <span>LEFT STICK MOVE</span>
+            <span>RIGHT SIDE LOOK</span>
+            <span>FIRE / ADS / JUMP</span>
+          </div>
+
+          <div class="mod-wrap">
+            <button id="mod-toggle" class="text-button" type="button">
+              CUSTOM MATCH RULES
+            </button>
+            <div id="mod-panel" class="mod-panel">
+              <div class="mod-head">
+                <div>
+                  <div class="panel-title">MOD RULESET</div>
+                  <p>Applied to offline matches. Import or export JSON.</p>
+                </div>
+                <button id="mod-reset" class="mini-button" type="button">
+                  RESET
+                </button>
+              </div>
+
+              <label class="mod-row">
+                <span>BOT COUNT</span>
+                <select id="mod-bots">
+                  <option value="1">1 BOT</option>
+                  <option value="3">3 BOTS</option>
+                  <option value="5">5 BOTS</option>
+                  <option value="7" selected>7 BOTS</option>
+                </select>
+              </label>
+
+              <label class="mod-row">
+                <span>DAMAGE <output id="mod-damage-value">1.00x</output></span>
+                <input
+                  id="mod-damage"
+                  type="range"
+                  min="0.25"
+                  max="3"
+                  step="0.05"
+                  value="1"
+                />
+              </label>
+
+              <label class="mod-row">
+                <span>MOVE SPEED <output id="mod-speed-value">1.00x</output></span>
+                <input
+                  id="mod-speed"
+                  type="range"
+                  min="0.5"
+                  max="2.5"
+                  step="0.05"
+                  value="1"
+                />
+              </label>
+
+              <label class="mod-row">
+                <span>GRAVITY <output id="mod-gravity-value">1.00x</output></span>
+                <input
+                  id="mod-gravity"
+                  type="range"
+                  min="0.25"
+                  max="2"
+                  step="0.05"
+                  value="1"
+                />
+              </label>
+
+              <label class="mod-row">
+                <span>MATCH LENGTH</span>
+                <select id="mod-duration">
+                  <option value="120">2 MINUTES</option>
+                  <option value="180" selected>3 MINUTES</option>
+                  <option value="300">5 MINUTES</option>
+                  <option value="600">10 MINUTES</option>
+                </select>
+              </label>
+
+              <label class="mod-check">
+                <input id="mod-infinite" type="checkbox" />
+                <span>INFINITE AMMO</span>
+              </label>
+              <label class="mod-check">
+                <input id="mod-friendly" type="checkbox" />
+                <span>FRIENDLY FIRE</span>
+              </label>
+
+              <div class="button-row mod-actions">
+                <button id="mod-import" class="mini-button" type="button">
+                  IMPORT JSON
+                </button>
+                <button id="mod-export" class="mini-button" type="button">
+                  EXPORT JSON
+                </button>
+              </div>
+              <input
+                id="mod-file"
+                type="file"
+                accept="application/json,.json"
+                hidden
+              />
+            </div>
+          </div>
+        </section>
+
+        <section class="play-panel">
+          <label class="name-field">
+            <span>CALLSIGN</span>
+            <input
+              id="player-name"
+              type="text"
+              maxlength="16"
+              autocomplete="off"
+              spellcheck="false"
+              value="Operator"
+            />
+          </label>
+
+          <div class="mode-grid">
+            <button id="play-offline-tdm" class="mode-card offline" type="button">
+              <span class="mode-kicker">SOLO / BOTS</span>
+              <strong>TEAM DEATHMATCH</strong>
+              <small>4v4 · 3 minutes · bot fill</small>
+              <em>PLAY OFFLINE</em>
+            </button>
+            <button id="play-offline-ffa" class="mode-card offline" type="button">
+              <span class="mode-kicker">SOLO / BOTS</span>
+              <strong>FREE FOR ALL</strong>
+              <small>8 operators · 3 minutes</small>
+              <em>PLAY OFFLINE</em>
+            </button>
+            <button id="play-online-tdm" class="mode-card online" type="button">
+              <span class="mode-kicker">MATCHMAKER</span>
+              <strong>4V4 TDM</strong>
+              <small>Humans + bots fill after 7s</small>
+              <em>FIND MATCH</em>
+            </button>
+            <button id="play-online-ffa" class="mode-card online" type="button">
+              <span class="mode-kicker">MATCHMAKER</span>
+              <strong>FREE FOR ALL</strong>
+              <small>Up to 8 operators</small>
+              <em>FIND MATCH</em>
+            </button>
+          </div>
+
+          <p class="menu-note">
+            Rounds last 3:00 with a 5-second restart. Online matches are
+            server-authoritative. Offline matches use your custom ruleset.
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <div id="touch-controls">
+      <div id="touch-look"></div>
+      <div id="touch-move">
+        <div id="touch-move-knob"></div>
+      </div>
+      <div class="touch-actions">
+        <button id="touch-ads" class="touch-button small" type="button">
+          ADS
+        </button>
+        <button id="touch-fire" class="touch-button fire" type="button">
+          FIRE
+        </button>
+        <button id="touch-jump" class="touch-button small" type="button">
+          JUMP
+        </button>
+        <button id="touch-reload" class="touch-button small" type="button">
+          RLD
+        </button>
+        <button id="touch-switch" class="touch-button small" type="button">
+          SWAP
+        </button>
       </div>
     </div>
 

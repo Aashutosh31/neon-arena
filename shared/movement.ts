@@ -30,10 +30,16 @@ function damp(
  * Physics runs in fixed steps, while collision is resolved strictly per axis:
  * X, then Z, then Y. Resolving X and Z separately is what produces wall sliding.
  */
+export interface MovementModifiers {
+  speedMultiplier?: number;
+  gravityMultiplier?: number;
+}
+
 export function simulateMovement(
   state: MovementState,
   input: MovementInput,
   delta: number,
+  modifiers: MovementModifiers = {},
 ): MovementState {
   const maxFrameDelta = MAX_SIMULATION_STEPS * SIMULATION_STEP;
   const frameDelta = Math.min(Math.max(delta, 0), maxFrameDelta);
@@ -48,7 +54,7 @@ export function simulateMovement(
     state.accumulator >= SIMULATION_STEP &&
     steps < MAX_SIMULATION_STEPS
   ) {
-    stepMovement(state, input, SIMULATION_STEP);
+    stepMovement(state, input, SIMULATION_STEP, modifiers);
     state.accumulator -= SIMULATION_STEP;
     steps += 1;
   }
@@ -60,13 +66,17 @@ function stepMovement(
   state: MovementState,
   input: MovementInput,
   dt: number,
+  modifiers: MovementModifiers,
 ): void {
+  const speedMultiplier = modifiers.speedMultiplier ?? 1;
+  const gravityMultiplier = modifiers.gravityMultiplier ?? 1;
+
   if (input.jump && state.grounded) {
     state.velocity.y = JUMP_STRENGTH;
     state.grounded = false;
   }
 
-  state.velocity.y += GRAVITY * dt;
+  state.velocity.y += GRAVITY * gravityMultiplier * dt;
   if (state.velocity.y < MAX_FALL_SPEED) {
     state.velocity.y = MAX_FALL_SPEED;
   }
@@ -103,15 +113,17 @@ function stepMovement(
       ? AIR_ACCELERATION
       : AIR_FRICTION;
 
+  const targetSpeed = MAX_MOVE_SPEED * (input.ads ? 0.52 : 1) * speedMultiplier;
+
   state.velocity.x = damp(
     state.velocity.x,
-    moveX * MAX_MOVE_SPEED,
+    moveX * targetSpeed,
     rate,
     dt,
   );
   state.velocity.z = damp(
     state.velocity.z,
-    moveZ * MAX_MOVE_SPEED,
+    moveZ * targetSpeed,
     rate,
     dt,
   );

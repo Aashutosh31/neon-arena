@@ -1,3 +1,5 @@
+import type { WeaponId } from "../shared/types";
+
 const SAMPLE_RATE = 11025;
 
 function encodeWav(samples: Float32Array): string {
@@ -57,6 +59,17 @@ function synthShoot(): Float32Array {
   return samples;
 }
 
+function synthClick(frequency: number, duration: number): Float32Array {
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    samples[i] =
+      Math.sin(2 * Math.PI * frequency * t) * Math.exp(-70 * t);
+  }
+  return samples;
+}
+
 function synthHit(): Float32Array {
   const duration = 0.075;
   const length = Math.round(SAMPLE_RATE * duration);
@@ -101,34 +114,75 @@ function createAudio(url: string, volume: number): HTMLAudioElement {
   return audio;
 }
 
+const SHOT_RATE: Record<WeaponId, number> = {
+  rifle: 1,
+  smg: 1.18,
+  shotgun: 0.72,
+  sniper: 0.54,
+  pistol: 1.08,
+};
+
+const SHOT_VOLUME: Record<WeaponId, number> = {
+  rifle: 0.22,
+  smg: 0.18,
+  shotgun: 0.3,
+  sniper: 0.32,
+  pistol: 0.2,
+};
+
 export class GameAudio {
   private readonly shoot: HTMLAudioElement;
   private readonly remoteShoot: HTMLAudioElement;
   private readonly hit: HTMLAudioElement;
+  private readonly headshot: HTMLAudioElement;
   private readonly death: HTMLAudioElement;
+  private readonly reload: HTMLAudioElement;
+  private readonly empty: HTMLAudioElement;
+  private readonly spawn: HTMLAudioElement;
 
   constructor() {
     const shootUrl = encodeWav(synthShoot());
     this.shoot = createAudio(shootUrl, 0.22);
-    this.remoteShoot = createAudio(shootUrl, 0.09);
+    this.remoteShoot = createAudio(shootUrl, 0.1);
     this.hit = createAudio(encodeWav(synthHit()), 0.25);
+    this.headshot = createAudio(encodeWav(synthHit()), 0.3);
+    this.headshot.playbackRate = 1.3;
     this.death = createAudio(encodeWav(synthDeath()), 0.24);
+    this.reload = createAudio(encodeWav(synthClick(260, 0.08)), 0.2);
+    this.empty = createAudio(encodeWav(synthClick(120, 0.05)), 0.16);
+    this.spawn = createAudio(encodeWav(synthClick(640, 0.12)), 0.14);
+    this.spawn.playbackRate = 0.8;
   }
 
-  playShoot(): void {
+  playShoot(weapon: WeaponId): void {
+    this.shoot.volume = SHOT_VOLUME[weapon];
+    this.shoot.playbackRate = SHOT_RATE[weapon];
     this.play(this.shoot);
   }
 
-  playRemoteShoot(): void {
+  playRemoteShoot(weapon: WeaponId): void {
+    this.remoteShoot.playbackRate = SHOT_RATE[weapon];
     this.play(this.remoteShoot);
   }
 
-  playHit(): void {
-    this.play(this.hit);
+  playHit(headshot = false): void {
+    this.play(headshot ? this.headshot : this.hit);
   }
 
   playDeath(): void {
     this.play(this.death);
+  }
+
+  playReload(): void {
+    this.play(this.reload);
+  }
+
+  playEmpty(): void {
+    this.play(this.empty);
+  }
+
+  playSpawn(): void {
+    this.play(this.spawn);
   }
 
   private play(audio: HTMLAudioElement): void {
