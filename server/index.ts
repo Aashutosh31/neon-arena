@@ -17,8 +17,8 @@ import {
   SERVER_PORT,
 } from "../shared/constants";
 import {
-  CITY_MAP,
-  circleHitsMap,
+  MAP_OBJECTS,
+  playerHitsMap,
   rayBoxDistance,
 } from "../shared/map";
 import { simulateMovement } from "../shared/movement";
@@ -157,7 +157,7 @@ function createSpawn(): Vec3 {
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const x = (Math.random() * 2 - 1) * 8;
     const z = (Math.random() * 2 - 1) * 8;
-    if (!circleHitsMap(x, z, PLAYER_RADIUS + 0.5)) {
+    if (!playerHitsMap(x, 0, z)) {
       return { x, y: 0, z };
     }
   }
@@ -461,7 +461,7 @@ io.on("connection", (socket) => {
     let nearestDistance = Infinity;
     let nearestCover = Infinity;
 
-    for (const box of CITY_MAP) {
+    for (const box of MAP_OBJECTS) {
       const distance = rayBoxDistance(origin, normalizedDirection, box);
       if (distance !== null && distance < nearestCover) {
         nearestCover = distance;

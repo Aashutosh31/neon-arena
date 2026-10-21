@@ -8,7 +8,12 @@ import {
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
 } from "../shared/constants";
-import { CITY_MAP } from "../shared/map";
+import {
+  FLOOR_COLOR,
+  FLOOR_SIZE,
+  FLOOR_Y,
+  MAP_OBJECTS,
+} from "../shared/map";
 import type {
   ClientToServerEvents,
   PlayerState,
@@ -79,10 +84,16 @@ camera.add(gun.object);
  * GridHelper is a single line-segment object, so it costs one draw call and no
  * textures. 50x50 divisions gives 1m cells across a 50m arena.
  */
-const grid = new THREE.GridHelper(50, 50, 0x005566, 0x003344);
+const grid = new THREE.GridHelper(
+  FLOOR_SIZE,
+  FLOOR_SIZE,
+  0x005566,
+  0x003344,
+);
 const gridMaterial = grid.material as THREE.LineBasicMaterial;
 gridMaterial.transparent = true;
 gridMaterial.opacity = 0.45;
+grid.position.y = FLOOR_Y + 0.001;
 scene.add(grid);
 
 /*
@@ -101,53 +112,61 @@ directionalLight.position.set(5, 10, 7);
 scene.add(directionalLight);
 
 const floorMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(50, 50),
-  new THREE.MeshBasicMaterial({ color: 0x050508 }),
+  new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
+  new THREE.MeshStandardMaterial({
+    color: FLOOR_COLOR,
+    roughness: 1,
+    metalness: 0,
+  }),
 );
 floorMesh.rotation.x = -Math.PI / 2;
-floorMesh.position.y = -0.01;
+floorMesh.position.y = FLOOR_Y - 0.01;
 scene.add(floorMesh);
 
-const cityGeometry = new THREE.BoxGeometry(1, 1, 1);
-const cityMaterial = new THREE.MeshStandardMaterial({
+const mapGeometry = new THREE.BoxGeometry(1, 1, 1);
+const mapMaterial = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   roughness: 0.72,
   metalness: 0.12,
   flatShading: true,
 });
-const cityMesh = new THREE.InstancedMesh(
-  cityGeometry,
-  cityMaterial,
-  CITY_MAP.length,
+const mapMesh = new THREE.InstancedMesh(
+  mapGeometry,
+  mapMaterial,
+  MAP_OBJECTS.length,
 );
-cityMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-cityMesh.matrixAutoUpdate = false;
-cityMesh.updateMatrix();
+mapMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+mapMesh.matrixAutoUpdate = false;
+mapMesh.updateMatrix();
 
-const cityInstanceMatrix = new THREE.Matrix4();
-const cityInstancePosition = new THREE.Vector3();
-const cityInstanceScale = new THREE.Vector3();
-const cityInstanceQuaternion = new THREE.Quaternion();
-const cityInstanceColor = new THREE.Color();
+const mapInstanceMatrix = new THREE.Matrix4();
+const mapInstancePosition = new THREE.Vector3();
+const mapInstanceScale = new THREE.Vector3();
+const mapInstanceQuaternion = new THREE.Quaternion();
+const mapInstanceColor = new THREE.Color();
 
-CITY_MAP.forEach((box, index) => {
-  cityInstancePosition.set(box.x, box.y + box.height / 2, box.z);
-  cityInstanceScale.set(box.width, box.height, box.depth);
-  cityInstanceMatrix.compose(
-    cityInstancePosition,
-    cityInstanceQuaternion,
-    cityInstanceScale,
+MAP_OBJECTS.forEach((object, index) => {
+  mapInstancePosition.set(
+    object.x,
+    object.y + object.height / 2,
+    object.z,
   );
-  cityMesh.setMatrixAt(index, cityInstanceMatrix);
-  cityMesh.setColorAt(index, cityInstanceColor.setHex(box.color));
+  mapInstanceScale.set(object.width, object.height, object.depth);
+  mapInstanceMatrix.compose(
+    mapInstancePosition,
+    mapInstanceQuaternion,
+    mapInstanceScale,
+  );
+  mapMesh.setMatrixAt(index, mapInstanceMatrix);
+  mapMesh.setColorAt(index, mapInstanceColor.setHex(object.color));
 });
 
-cityMesh.instanceMatrix.needsUpdate = true;
-if (cityMesh.instanceColor) {
-  cityMesh.instanceColor.needsUpdate = true;
+mapMesh.instanceMatrix.needsUpdate = true;
+if (mapMesh.instanceColor) {
+  mapMesh.instanceColor.needsUpdate = true;
 }
-cityMesh.computeBoundingSphere();
-scene.add(cityMesh);
+mapMesh.computeBoundingSphere();
+scene.add(mapMesh);
 
 const EDGE_INDICES = [
   0, 1, 1, 2, 2, 3, 3, 0,
@@ -155,16 +174,16 @@ const EDGE_INDICES = [
   0, 4, 1, 5, 2, 6, 3, 7,
 ] as const;
 const edgeCorners = new Float32Array(8 * 3);
-const edgePositions = new Float32Array(CITY_MAP.length * 12 * 2 * 3);
+const edgePositions = new Float32Array(MAP_OBJECTS.length * 12 * 2 * 3);
 let edgeOffset = 0;
 
-for (const box of CITY_MAP) {
-  const minX = box.x - box.width / 2;
-  const maxX = box.x + box.width / 2;
-  const minY = box.y;
-  const maxY = box.y + box.height;
-  const minZ = box.z - box.depth / 2;
-  const maxZ = box.z + box.depth / 2;
+for (const object of MAP_OBJECTS) {
+  const minX = object.x - object.width / 2;
+  const maxX = object.x + object.width / 2;
+  const minY = object.y;
+  const maxY = object.y + object.height;
+  const minZ = object.z - object.depth / 2;
+  const maxZ = object.z + object.depth / 2;
 
   edgeCorners[0] = minX;
   edgeCorners[1] = minY;
@@ -205,24 +224,24 @@ for (const box of CITY_MAP) {
   }
 }
 
-const cityEdgeGeometry = new THREE.BufferGeometry();
-cityEdgeGeometry.setAttribute(
+const mapEdgeGeometry = new THREE.BufferGeometry();
+mapEdgeGeometry.setAttribute(
   "position",
   new THREE.BufferAttribute(edgePositions, 3),
 );
-const cityEdgeMaterial = new THREE.LineBasicMaterial({
+const mapEdgeMaterial = new THREE.LineBasicMaterial({
   color: 0x00ffff,
   transparent: true,
   opacity: 0.42,
   depthWrite: false,
 });
-const cityEdges = new THREE.LineSegments(
-  cityEdgeGeometry,
-  cityEdgeMaterial,
+const mapEdges = new THREE.LineSegments(
+  mapEdgeGeometry,
+  mapEdgeMaterial,
 );
-scene.add(cityEdges);
+scene.add(mapEdges);
 
-const staticMeshes: THREE.Object3D[] = [floorMesh, cityMesh];
+const staticMeshes: THREE.Object3D[] = [floorMesh, mapMesh];
 
 const audio = new GameAudio();
 
@@ -286,14 +305,9 @@ interface RemotePlayer {
 
 const REMOTE_LERP_RATE = 15;
 const SEND_INTERVAL_MS = 1000 / NETWORK_TICK_RATE;
-const MAX_FRAME_DELTA = 0.1;
-// Ignore tiny prediction drift; blend normal latency; hard-snap only real desyncs.
-const RECONCILE_DEADZONE_SQ = 0.5 * 0.5;
-const RECONCILE_FAST_DISTANCE_SQ = 2 * 2;
-const HARD_SNAP_DISTANCE_SQ = 5 * 5;
-const RECONCILE_RATE = 12;
-const RECONCILE_FAST_RATE = 24;
-const RECONCILE_DONE_SQ = 0.05 * 0.05;
+const RECONCILE_SNAP_DISTANCE_SQ = 1;
+const RECONCILE_LERP = 0.2;
+const RECONCILE_DONE_SQ = 0.01 * 0.01;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 // One geometry/material shared by every remote capsule to keep RAM and draw
@@ -337,7 +351,6 @@ let lastTimerLow = false;
 let scoreboardSignature = "";
 const reconcileTarget = new THREE.Vector3();
 let reconciling = false;
-let reconcileRate = RECONCILE_RATE;
 let pingRequest = 0;
 
 function setLocalHealth(health: number): void {
@@ -861,19 +874,15 @@ socket.on("game_state", ({ players, matchTime }) => {
         const dz = state.position.z - player.position.z;
         const distanceSq = dx * dx + dy * dy + dz * dz;
 
-        if (distanceSq > HARD_SNAP_DISTANCE_SQ) {
+        if (distanceSq > RECONCILE_SNAP_DISTANCE_SQ) {
           player.snapTo(state.position);
           reconciling = false;
-        } else if (distanceSq > RECONCILE_DEADZONE_SQ) {
+        } else if (distanceSq > 1e-8) {
           reconcileTarget.set(
             state.position.x,
             state.position.y,
             state.position.z,
           );
-          reconcileRate =
-            distanceSq > RECONCILE_FAST_DISTANCE_SQ
-              ? RECONCILE_FAST_RATE
-              : RECONCILE_RATE;
           reconciling = true;
         } else {
           reconciling = false;
@@ -1053,15 +1062,17 @@ function sendPlayerInput(now: number): void {
 }
 
 renderer.setAnimationLoop(() => {
-  const delta = Math.min(clock.getDelta(), MAX_FRAME_DELTA);
+  const safeDelta = Math.min(clock.getDelta(), 0.05);
 
   camera.getWorldDirection(cameraDirection);
   if (!localDead) {
-    player.update(delta, input, cameraDirection);
+    player.update(safeDelta, input, cameraDirection);
 
     if (reconciling) {
-      const blend = 1 - Math.exp(-reconcileRate * delta);
-      player.smoothTo(reconcileTarget, blend);
+      // 0.2 per 60fps frame, converted to a frame-rate independent blend.
+      const lerpFactor =
+        1 - Math.pow(1 - RECONCILE_LERP, safeDelta * 60);
+      player.smoothTo(reconcileTarget, lerpFactor);
       if (
         player.position.distanceToSquared(reconcileTarget) <
         RECONCILE_DONE_SQ
@@ -1134,12 +1145,12 @@ renderer.setAnimationLoop(() => {
     });
   }
 
-  gun.update(delta);
-  updateTracers(delta);
-  updateImpactSparks(delta);
+  gun.update(safeDelta);
+  updateTracers(safeDelta);
+  updateImpactSparks(safeDelta);
 
   // Frame-rate independent smoothing; at 20hz updates this removes the steps.
-  const lerpFactor = 1 - Math.exp(-REMOTE_LERP_RATE * delta);
+  const lerpFactor = 1 - Math.exp(-REMOTE_LERP_RATE * safeDelta);
   for (const remote of remotePlayers.values()) {
     remote.mesh.position.lerp(remote.targetPosition, lerpFactor);
     remote.mesh.quaternion.slerp(remote.targetQuaternion, lerpFactor);

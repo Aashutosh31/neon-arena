@@ -8,18 +8,14 @@ import {
   MAX_FALL_SPEED,
   MAX_MOVE_SPEED,
   MAX_SIMULATION_STEPS,
+  PLAYER_HALF_DEPTH,
+  PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
-  PLAYER_RADIUS,
   SIMULATION_STEP,
 } from "./constants";
-import { CITY_MAP } from "./map";
+import { MAP_OBJECTS, type MapObject } from "./map";
 import type { MovementInput, MovementState } from "./types";
 
-/**
- * Frame-rate independent damping: after `delta` seconds, the remaining gap to
- * the target is e^-lambda*delta. Matches THREE.MathUtils.damp without importing
- * Three.js, so the server stays lightweight.
- */
 function damp(
   current: number,
   target: number,
@@ -30,15 +26,9 @@ function damp(
 }
 
 /**
- * Deterministic player movement. Mutates and returns `state` to avoid per-frame
- * allocations on both the client and server.
- *
- * Real time is accumulated and consumed in fixed SIMULATION_STEP increments, so
- * a 60fps client and the 20hz server execute the same sequence of physics steps.
- * `delta` may be any frame/tick time; huge deltas are capped to prevent tunneling.
- *
- * Everything here depends only on the state, input flags, yaw and fixed step,
- * which is why client prediction and server authority produce the same result.
+ * Deterministic movement shared by client prediction and server authority.
+ * Physics runs in fixed steps, while collision is resolved strictly per axis:
+ * X, then Z, then Y. Resolving X and Z separately is what produces wall sliding.
  */
 export function simulateMovement(
   state: MovementState,
@@ -84,7 +74,6 @@ function stepMovement(
   // Yaw 0 faces -Z, matching Three.js' camera forward axis.
   const forwardX = -Math.sin(input.yaw);
   const forwardZ = -Math.cos(input.yaw);
-  // forward x worldUp = right-hand side of the view.
   const rightX = -forwardZ;
   const rightZ = forwardX;
 
@@ -98,7 +87,6 @@ function stepMovement(
   const moveLengthSq = moveX * moveX + moveZ * moveZ;
   const hasInput = moveLengthSq > 1e-8;
   if (hasInput) {
-    // Normalizing keeps diagonal movement the same speed as straight lines.
     const inverseLength = 1 / Math.sqrt(moveLengthSq);
     moveX *= inverseLength;
     moveZ *= inverseLength;
@@ -107,11 +95,6 @@ function stepMovement(
     moveZ = 0;
   }
 
-  /*
-   * Strong ground acceleration/friction, weak air control. Damping is
-   * exponential, so the same real time produces the same velocity at any
-   * render/tick rate.
-   */
   const rate = state.grounded
     ? hasInput
       ? GROUND_ACCELERATION
@@ -133,135 +116,174 @@ function stepMovement(
     dt,
   );
 
-  state.position.x += state.velocity.x * dt;
-  // Exact constant-acceleration integration: v*dt - 0.5*g*dt^2. This keeps
-  // jump arcs nearly identical at 60fps client and 20hz server tick rates.
-  state.position.y += state.velocity.y * dt - 0.5 * GRAVITY * dt * dt;
-  state.position.z += state.velocity.z * dt;
+  moveAxisX(state, state.velocity.x * dt);
+  moveAxisZ(state, state.velocity.z * dt);
 
   state.grounded = false;
-  resolveMapCollision(state);
+  moveAxisY(state, state.velocity.y * dt);
 
   if (state.position.y <= 0) {
     state.position.y = 0;
     if (state.velocity.y < 0) {
       state.velocity.y = 0;
     }
-  }
-
-  state.grounded = state.position.y <= 0.001 || isStandingOnMap(state);
-}
-
-function resolveMapCollision(state: MovementState): void {
-  for (let pass = 0; pass < 2; pass += 1) {
-    let collided = false;
-
-    for (const box of CITY_MAP) {
-      const playerMinX = state.position.x - PLAYER_RADIUS;
-      const playerMaxX = state.position.x + PLAYER_RADIUS;
-      const playerMinY = state.position.y;
-      const playerMaxY = state.position.y + PLAYER_HEIGHT;
-      const playerMinZ = state.position.z - PLAYER_RADIUS;
-      const playerMaxZ = state.position.z + PLAYER_RADIUS;
-
-      const boxMinX = box.x - box.width / 2;
-      const boxMaxX = box.x + box.width / 2;
-      const boxMinY = box.y;
-      const boxMaxY = box.y + box.height;
-      const boxMinZ = box.z - box.depth / 2;
-      const boxMaxZ = box.z + box.depth / 2;
-
-      const overlapX =
-        Math.min(playerMaxX, boxMaxX) - Math.max(playerMinX, boxMinX);
-      if (overlapX <= 0) {
-        continue;
-      }
-
-      const overlapY =
-        Math.min(playerMaxY, boxMaxY) - Math.max(playerMinY, boxMinY);
-      if (overlapY <= 0) {
-        continue;
-      }
-
-      const overlapZ =
-        Math.min(playerMaxZ, boxMaxZ) - Math.max(playerMinZ, boxMinZ);
-      if (overlapZ <= 0) {
-        continue;
-      }
-
-      collided = true;
-
-      if (overlapX <= overlapY && overlapX <= overlapZ) {
-        state.position.x =
-          box.x +
-          (state.position.x >= box.x ? 1 : -1) *
-            (box.width / 2 + PLAYER_RADIUS);
-        state.velocity.x = 0;
-        continue;
-      }
-
-      if (overlapZ <= overlapX && overlapZ <= overlapY) {
-        state.position.z =
-          box.z +
-          (state.position.z >= box.z ? 1 : -1) *
-            (box.depth / 2 + PLAYER_RADIUS);
-        state.velocity.z = 0;
-        continue;
-      }
-
-      const playerCenterY = state.position.y + PLAYER_HEIGHT / 2;
-      const boxCenterY = box.y + box.height / 2;
-
-      if (playerCenterY >= boxCenterY) {
-        state.position.y = box.y + box.height;
-        if (state.velocity.y < 0) {
-          state.velocity.y = 0;
-        }
-      } else if (box.y > 0.001) {
-        state.position.y = box.y - PLAYER_HEIGHT;
-        if (state.velocity.y > 0) {
-          state.velocity.y = 0;
-        }
-      } else if (overlapX < overlapZ) {
-        state.position.x =
-          box.x +
-          (state.position.x >= box.x ? 1 : -1) *
-            (box.width / 2 + PLAYER_RADIUS);
-        state.velocity.x = 0;
-      } else {
-        state.position.z =
-          box.z +
-          (state.position.z >= box.z ? 1 : -1) *
-            (box.depth / 2 + PLAYER_RADIUS);
-        state.velocity.z = 0;
-      }
-    }
-
-    if (!collided) {
-      break;
-    }
+    state.grounded = true;
   }
 }
 
-function isStandingOnMap(state: MovementState): boolean {
-  const feetY = state.position.y;
-  const epsilon = 0.04;
+function moveAxisX(state: MovementState, amount: number): void {
+  if (amount === 0) {
+    return;
+  }
 
-  for (const box of CITY_MAP) {
-    const topY = box.y + box.height;
-    if (Math.abs(feetY - topY) > epsilon) {
+  state.position.x += amount;
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const hit = findOverlappingObject(state);
+    if (!hit) {
+      return;
+    }
+
+    if (amount > 0) {
+      state.position.x = Math.min(
+        state.position.x,
+        hit.x - hit.width / 2 - PLAYER_HALF_WIDTH,
+      );
+    } else {
+      state.position.x = Math.max(
+        state.position.x,
+        hit.x + hit.width / 2 + PLAYER_HALF_WIDTH,
+      );
+    }
+    state.velocity.x = 0;
+  }
+}
+
+function moveAxisZ(state: MovementState, amount: number): void {
+  if (amount === 0) {
+    return;
+  }
+
+  state.position.z += amount;
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const hit = findOverlappingObject(state);
+    if (!hit) {
+      return;
+    }
+
+    if (amount > 0) {
+      state.position.z = Math.min(
+        state.position.z,
+        hit.z - hit.depth / 2 - PLAYER_HALF_DEPTH,
+      );
+    } else {
+      state.position.z = Math.max(
+        state.position.z,
+        hit.z + hit.depth / 2 + PLAYER_HALF_DEPTH,
+      );
+    }
+    state.velocity.z = 0;
+  }
+}
+
+function moveAxisY(state: MovementState, amount: number): void {
+  if (amount === 0) {
+    return;
+  }
+
+  const oldMinY = state.position.y;
+  const oldMaxY = oldMinY + PLAYER_HEIGHT;
+  state.position.y += amount;
+
+  let landingY = -Infinity;
+  let ceilingY = Infinity;
+
+  for (const object of MAP_OBJECTS) {
+    if (!overlapsHorizontal(state, object)) {
+      continue;
+    }
+
+    const objectMinY = object.y;
+    const objectMaxY = object.y + object.height;
+
+    if (amount < 0) {
+      if (
+        oldMinY >= objectMaxY - 0.0001 &&
+        state.position.y < objectMaxY &&
+        state.position.y + PLAYER_HEIGHT > objectMinY
+      ) {
+        if (objectMaxY > landingY) {
+          landingY = objectMaxY;
+        }
+      }
       continue;
     }
 
     if (
-      Math.abs(state.position.x - box.x) <
-        box.width / 2 + PLAYER_RADIUS &&
-      Math.abs(state.position.z - box.z) <
-        box.depth / 2 + PLAYER_RADIUS
+      oldMaxY <= objectMinY + 0.0001 &&
+      state.position.y + PLAYER_HEIGHT > objectMinY &&
+      state.position.y < objectMaxY
     ) {
-      return true;
+      if (objectMinY < ceilingY) {
+        ceilingY = objectMinY;
+      }
     }
   }
 
-  return false;
+  if (landingY > -Infinity) {
+    state.position.y = landingY;
+    state.velocity.y = 0;
+    state.grounded = true;
+    return;
+  }
+
+  if (ceilingY < Infinity) {
+    state.position.y = ceilingY - PLAYER_HEIGHT;
+    state.velocity.y = 0;
+  }
+}
+
+function findOverlappingObject(state: MovementState): MapObject | null {
+  for (const object of MAP_OBJECTS) {
+    if (overlapsObject(state, object)) {
+      return object;
+    }
+  }
+
+  return null;
+}
+
+function overlapsObject(
+  state: MovementState,
+  object: MapObject,
+): boolean {
+  return (
+    state.position.x - PLAYER_HALF_WIDTH <
+      object.x + object.width / 2 &&
+    state.position.x + PLAYER_HALF_WIDTH >
+      object.x - object.width / 2 &&
+    state.position.y < object.y + object.height &&
+    state.position.y + PLAYER_HEIGHT > object.y &&
+    state.position.z - PLAYER_HALF_DEPTH <
+      object.z + object.depth / 2 &&
+    state.position.z + PLAYER_HALF_DEPTH >
+      object.z - object.depth / 2
+  );
+}
+
+function overlapsHorizontal(
+  state: MovementState,
+  object: MapObject,
+): boolean {
+  return (
+    state.position.x - PLAYER_HALF_WIDTH <
+      object.x + object.width / 2 &&
+    state.position.x + PLAYER_HALF_WIDTH >
+      object.x - object.width / 2 &&
+    state.position.z - PLAYER_HALF_DEPTH <
+      object.z + object.depth / 2 &&
+    state.position.z + PLAYER_HALF_DEPTH >
+      object.z - object.depth / 2
+  );
 }

@@ -1,8 +1,12 @@
-import { PLAYER_HEIGHT } from "./constants";
+import {
+  PLAYER_HALF_DEPTH,
+  PLAYER_HALF_WIDTH,
+  PLAYER_HEIGHT,
+} from "./constants";
 import type { Vec3 } from "./types";
 
-/** Axis-aligned block; (x, z) is the center and y is the bottom. */
-export interface MapBox {
+export interface MapObject {
+  id: string;
   x: number;
   y: number;
   z: number;
@@ -12,60 +16,166 @@ export interface MapBox {
   color: number;
 }
 
-export const CITY_MAP: readonly MapBox[] = [
-  { x: -18, y: 0, z: -18, width: 7, height: 14, depth: 7, color: 0x1a2230 },
-  { x: 18, y: 0, z: -18, width: 8, height: 18, depth: 6, color: 0x141c28 },
-  { x: -18, y: 0, z: 18, width: 6, height: 12, depth: 8, color: 0x1d2636 },
-  { x: 18, y: 0, z: 18, width: 7, height: 16, depth: 7, color: 0x17212e },
+export const FLOOR_SIZE = 50;
+export const FLOOR_Y = 0;
+export const FLOOR_COLOR = 0x050508;
 
-  { x: -14, y: 0, z: 0, width: 5, height: 7, depth: 9, color: 0x202a3a },
-  { x: 14, y: 0, z: 0, width: 5, height: 9, depth: 9, color: 0x1b2432 },
-  { x: 0, y: 0, z: -16, width: 12, height: 6, depth: 5, color: 0x1c2635 },
-  { x: 0, y: 0, z: 16, width: 9, height: 5, depth: 4, color: 0x232d3f },
-  { x: -9, y: 0, z: -14, width: 4, height: 5, depth: 4, color: 0x243042 },
-  { x: 9, y: 0, z: -14, width: 4, height: 6, depth: 4, color: 0x1f2a39 },
+/*
+ * (x, z) is the center and y is the bottom of the box.
+ * The four perimeter walls have inner faces at +/-24; the six interior objects
+ * provide three tall sight-line breakers and three low cover pieces.
+ */
+export const MAP_OBJECTS: readonly MapObject[] = [
+  {
+    id: "wall-north",
+    x: 0,
+    y: 0,
+    z: -24.5,
+    width: FLOOR_SIZE,
+    height: 8,
+    depth: 1,
+    color: 0x0a1422,
+  },
+  {
+    id: "wall-south",
+    x: 0,
+    y: 0,
+    z: 24.5,
+    width: FLOOR_SIZE,
+    height: 8,
+    depth: 1,
+    color: 0x0a1422,
+  },
+  {
+    id: "wall-west",
+    x: -24.5,
+    y: 0,
+    z: 0,
+    width: 1,
+    height: 8,
+    depth: FLOOR_SIZE - 2,
+    color: 0x0a1422,
+  },
+  {
+    id: "wall-east",
+    x: 24.5,
+    y: 0,
+    z: 0,
+    width: 1,
+    height: 8,
+    depth: FLOOR_SIZE - 2,
+    color: 0x0a1422,
+  },
 
-  { x: -5, y: 0, z: -5, width: 2.5, height: 1.1, depth: 2.5, color: 0x2f3f52 },
-  { x: 5, y: 0, z: -5, width: 2.5, height: 1.1, depth: 2.5, color: 0x2f3f52 },
-  { x: -5, y: 0, z: 5, width: 2.5, height: 1.1, depth: 2.5, color: 0x2f3f52 },
-  { x: 5, y: 0, z: 5, width: 2.5, height: 1.1, depth: 2.5, color: 0x2f3f52 },
-
-  { x: 9, y: 0, z: 10, width: 3, height: 0.5, depth: 1.5, color: 0x0f2b3a },
-  { x: 9, y: 0, z: 8.5, width: 3, height: 1, depth: 1.5, color: 0x123344 },
-  { x: 9, y: 0, z: 7, width: 3, height: 1.5, depth: 1.5, color: 0x153b4e },
-  { x: 9, y: 0, z: 5.5, width: 3, height: 2, depth: 1.5, color: 0x184458 },
-  { x: 9, y: 1.5, z: 3.5, width: 3, height: 0.5, depth: 2.5, color: 0x123a4a },
-  { x: 9, y: 0, z: 2.5, width: 1, height: 1.5, depth: 1, color: 0x0f2b3a },
+  {
+    id: "tower-north",
+    x: 0,
+    y: 0,
+    z: -14,
+    width: 4,
+    height: 6,
+    depth: 4,
+    color: 0x1a2f4a,
+  },
+  {
+    id: "tower-west",
+    x: -11,
+    y: 0,
+    z: 0,
+    width: 4,
+    height: 5,
+    depth: 4,
+    color: 0x16283f,
+  },
+  {
+    id: "tower-east",
+    x: 11,
+    y: 0,
+    z: 0,
+    width: 4,
+    height: 5,
+    depth: 4,
+    color: 0x182c45,
+  },
+  {
+    id: "cover-south",
+    x: 0,
+    y: 0,
+    z: 6,
+    width: 6,
+    height: 1,
+    depth: 2,
+    color: 0x20405a,
+  },
+  {
+    id: "cover-west",
+    x: -6,
+    y: 0,
+    z: -4,
+    width: 3,
+    height: 1,
+    depth: 3,
+    color: 0x1c3a52,
+  },
+  {
+    id: "cover-east",
+    x: 6,
+    y: 0,
+    z: -4,
+    width: 3,
+    height: 1,
+    depth: 3,
+    color: 0x1e3d56,
+  },
 ];
 
-export function circleHitsMap(
-  x: number,
-  z: number,
-  radius: number,
-  feetY = 0,
-  height = PLAYER_HEIGHT,
+export function aabbHitsMap(
+  minX: number,
+  minY: number,
+  minZ: number,
+  maxX: number,
+  maxY: number,
+  maxZ: number,
 ): boolean {
-  const maxY = feetY + height;
-
-  for (const box of CITY_MAP) {
-    if (box.y >= maxY || box.y + box.height <= feetY) {
-      continue;
-    }
+  for (const object of MAP_OBJECTS) {
+    const objectMinX = object.x - object.width / 2;
+    const objectMaxX = object.x + object.width / 2;
+    const objectMinY = object.y;
+    const objectMaxY = object.y + object.height;
+    const objectMinZ = object.z - object.depth / 2;
+    const objectMaxZ = object.z + object.depth / 2;
 
     if (
-      Math.abs(x - box.x) < box.width / 2 + radius &&
-      Math.abs(z - box.z) < box.depth / 2 + radius
+      maxX > objectMinX &&
+      minX < objectMaxX &&
+      maxY > objectMinY &&
+      minY < objectMaxY &&
+      maxZ > objectMinZ &&
+      minZ < objectMaxZ
     ) {
       return true;
     }
   }
+
   return false;
+}
+
+/** Test the player's full AABB at a feet position against the map. */
+export function playerHitsMap(x: number, y: number, z: number): boolean {
+  return aabbHitsMap(
+    x - PLAYER_HALF_WIDTH,
+    y,
+    z - PLAYER_HALF_DEPTH,
+    x + PLAYER_HALF_WIDTH,
+    y + PLAYER_HEIGHT,
+    z + PLAYER_HALF_DEPTH,
+  );
 }
 
 export function rayBoxDistance(
   origin: Vec3,
   direction: Vec3,
-  box: MapBox,
+  box: MapObject,
 ): number | null {
   let tMin = 0;
   let tMax = Infinity;

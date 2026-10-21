@@ -12,16 +12,23 @@ export const SIMULATION_STEP = 1 / 120;
 export const MAX_SIMULATION_STEPS = 12;
 
 /*
- * Player movement constants live in shared/ so the future server-authoritative
- * simulation uses exactly the same numbers as client-side prediction. Different
- * values on each side would cause constant rubber-banding.
+ * The player is a strict AABB. Width/depth are equal so the visual capsule and
+ * the collision box share the same footprint.
  */
-export const PLAYER_HEIGHT = 1.7;
-export const PLAYER_RADIUS = 0.35;
+export const PLAYER_WIDTH = 0.8;
+export const PLAYER_HEIGHT = 1.8;
+export const PLAYER_DEPTH = 0.8;
+export const PLAYER_HALF_WIDTH = PLAYER_WIDTH / 2;
+export const PLAYER_HALF_DEPTH = PLAYER_DEPTH / 2;
+export const PLAYER_RADIUS = PLAYER_WIDTH / 2;
 export const EYE_HEIGHT = 1.6;
 
-// Half-size of the playable grid area (the floor is 50x50).
-export const ARENA_LIMIT = 24.5;
+/*
+ * Perimeter walls have their inner faces at x/z = +/-24. This is the maximum
+ * player-center coordinate; the AABB is already stopped by the wall collision,
+ * so this value is only a final safety clamp.
+ */
+export const ARENA_LIMIT = 24 - PLAYER_HALF_WIDTH;
 
 export const GRAVITY = -25;
 export const JUMP_STRENGTH = 8;
