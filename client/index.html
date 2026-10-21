@@ -15,7 +15,11 @@
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
-    <div id="scope"></div>
+    <div id="scope">
+      <div id="scope-reticle"></div>
+      <div id="scope-zoom"></div>
+      <div id="scope-hint"></div>
+    </div>
 
     <div id="hud">
       <div id="top-bar">
@@ -59,6 +63,7 @@
 
       <div id="ammo-panel">
         <div id="weapon-name">VK-7 RIFLE</div>
+        <div id="optic-status"></div>
         <div id="ammo-line">
           <span id="ammo-current">30</span>
           <span class="ammo-separator">/</span>
@@ -74,8 +79,9 @@
 
     <div id="death-overlay" class="overlay">
       <div class="overlay-card death-card">
-        <div class="eyebrow">SIGNAL LOST</div>
-        <h2>ELIMINATED</h2>
+        <div class="eyebrow">OPERATOR DOWN</div>
+        <h2 id="death-title">YOU DIED</h2>
+        <div id="death-killer">NO SURVIVORS · STAY SHARP</div>
         <div id="death-subtitle">RESPAWNING IN 3</div>
       </div>
     </div>
@@ -126,14 +132,14 @@
           <div class="eyebrow">BROWSER COMBAT SIMULATION</div>
           <h1>NEON<br /><span>ARENA</span></h1>
           <p class="tagline">
-            Fast, readable firefights built for low-end hardware. Five weapon
-            classes, three-minute rounds, and bots that actually contest the
-            map.
+            Fast, readable firefights built for low-end hardware. Eight weapon
+            classes, multi-zoom optics, large buildings, and bots that
+            actually contest the map.
           </p>
           <div class="feature-row">
-            <span>5 WEAPONS</span>
+            <span>8 WEAPONS</span>
+            <span>VARIABLE OPTICS</span>
             <span>4V4 + FFA</span>
-            <span>MOD RULES</span>
           </div>
           <div class="controls-hint desktop-hint">
             <span><b>WASD</b> MOVE</span>
@@ -141,6 +147,8 @@
             <span><b>LMB</b> FIRE</span>
             <span><b>RMB</b> ADS</span>
             <span><b>R</b> RELOAD</span>
+            <span><b>V / WHEEL</b> SCOPE ZOOM</span>
+            <span><b>1–8</b> WEAPONS</span>
             <span><b>Q</b> SWAP</span>
           </div>
           <div class="controls-hint touch-hint">
@@ -315,6 +323,9 @@
         </button>
         <button id="touch-switch" class="touch-button small" type="button">
           SWAP
+        </button>
+        <button id="touch-scope" class="touch-button small" type="button">
+          ZOOM
         </button>
       </div>
     </div>

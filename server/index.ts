@@ -208,10 +208,11 @@ function createMatch(mode: GameMode, entries: QueueEntry[], now: number): void {
         });
       }
     },
-    onKilled: (killerId, victimId, headshot, respawnAt) => {
+    onKilled: (killerId, victimId, headshot, respawnAt, killerWeapon) => {
       io.to(room).emit("player_died", {
         playerId: victimId,
         killerId,
+        killerWeapon,
         headshot,
         respawnAt,
       });

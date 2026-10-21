@@ -119,7 +119,10 @@ const SHOT_RATE: Record<WeaponId, number> = {
   smg: 1.18,
   shotgun: 0.72,
   sniper: 0.54,
+  dmr: 0.78,
+  lmg: 0.92,
   pistol: 1.08,
+  revolver: 0.68,
 };
 
 const SHOT_VOLUME: Record<WeaponId, number> = {
@@ -127,7 +130,10 @@ const SHOT_VOLUME: Record<WeaponId, number> = {
   smg: 0.18,
   shotgun: 0.3,
   sniper: 0.32,
+  dmr: 0.26,
+  lmg: 0.24,
   pistol: 0.2,
+  revolver: 0.28,
 };
 
 export class GameAudio {

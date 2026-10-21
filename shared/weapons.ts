@@ -1,5 +1,10 @@
 import type { WeaponId } from "./types";
 
+export interface ScopeLevel {
+  fov: number;
+  label: string;
+}
+
 export interface WeaponSpec {
   id: WeaponId;
   name: string;
@@ -19,6 +24,10 @@ export interface WeaponSpec {
   minDamageMultiplier: number;
   automatic: boolean;
   adsFov: number;
+  /** Optional variable-zoom levels, cycled with V / mouse wheel / touch ZOOM. */
+  zoomLevels?: readonly ScopeLevel[];
+  /** Full-screen optic overlay when aiming. */
+  scopeOverlay?: boolean;
   recoil: number;
   accent: number;
   hudColor: string;
@@ -113,15 +122,76 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     minDamageMultiplier: 0.88,
     automatic: false,
     adsFov: 28,
+    zoomLevels: [
+      { fov: 45, label: "2.5X" },
+      { fov: 28, label: "4X" },
+      { fov: 16, label: "6X" },
+    ],
+    scopeOverlay: true,
     recoil: 1.25,
     accent: 0xff3d81,
     hudColor: "#ff3d81",
+  },
+  dmr: {
+    id: "dmr",
+    name: "M14 Sentinel",
+    shortName: "M14",
+    slot: 5,
+    damage: 44,
+    headshotMultiplier: 2.1,
+    fireIntervalMs: 300,
+    magazine: 10,
+    reserve: 60,
+    reloadTimeMs: 2500,
+    pellets: 1,
+    spreadRad: 0.005,
+    adsSpreadMultiplier: 0.18,
+    range: 170,
+    falloffStart: 95,
+    minDamageMultiplier: 0.8,
+    automatic: false,
+    adsFov: 48,
+    zoomLevels: [
+      { fov: 48, label: "2X" },
+      { fov: 32, label: "3X" },
+    ],
+    scopeOverlay: true,
+    recoil: 0.9,
+    accent: 0x7dffc4,
+    hudColor: "#7dffc4",
+  },
+  lmg: {
+    id: "lmg",
+    name: "MK-8 Bastion",
+    shortName: "MK-8",
+    slot: 6,
+    damage: 20,
+    headshotMultiplier: 1.55,
+    fireIntervalMs: 95,
+    magazine: 50,
+    reserve: 200,
+    reloadTimeMs: 4200,
+    pellets: 1,
+    spreadRad: 0.02,
+    adsSpreadMultiplier: 0.48,
+    range: 105,
+    falloffStart: 38,
+    minDamageMultiplier: 0.55,
+    automatic: true,
+    adsFov: 58,
+    zoomLevels: [
+      { fov: 58, label: "1.5X" },
+      { fov: 44, label: "2X" },
+    ],
+    recoil: 0.72,
+    accent: 0xc084ff,
+    hudColor: "#c084ff",
   },
   pistol: {
     id: "pistol",
     name: "P9 Sidearm",
     shortName: "P9",
-    slot: 5,
+    slot: 7,
     damage: 27,
     headshotMultiplier: 2,
     fireIntervalMs: 280,
@@ -140,6 +210,29 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     accent: 0xb6ff5c,
     hudColor: "#b6ff5c",
   },
+  revolver: {
+    id: "revolver",
+    name: "R6 Marshal",
+    shortName: "R6",
+    slot: 8,
+    damage: 52,
+    headshotMultiplier: 2.2,
+    fireIntervalMs: 520,
+    magazine: 6,
+    reserve: 36,
+    reloadTimeMs: 2300,
+    pellets: 1,
+    spreadRad: 0.011,
+    adsSpreadMultiplier: 0.32,
+    range: 85,
+    falloffStart: 32,
+    minDamageMultiplier: 0.6,
+    automatic: false,
+    adsFov: 58,
+    recoil: 1.15,
+    accent: 0xe5f2ff,
+    hudColor: "#e5f2ff",
+  },
 };
 
 export const WEAPON_ORDER: readonly WeaponId[] = [
@@ -147,7 +240,10 @@ export const WEAPON_ORDER: readonly WeaponId[] = [
   "smg",
   "shotgun",
   "sniper",
+  "dmr",
+  "lmg",
   "pistol",
+  "revolver",
 ];
 
 export function isWeaponId(value: unknown): value is WeaponId {

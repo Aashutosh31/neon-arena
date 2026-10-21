@@ -80,6 +80,7 @@ let currentState: GameStatePayload | null = null;
 let yaw = 0;
 let pitch = 0;
 let lastWeapon: WeaponId = "rifle";
+let scopeIndex = 0;
 let lastShotAt = 0;
 let triggerWasDown = false;
 let lastInputSentAt = 0;
@@ -105,6 +106,26 @@ function localState(): PlayerState | null {
   );
 }
 
+function resetScopeIndex(weapon: WeaponId): void {
+  const spec = WEAPONS[weapon];
+  if (!spec.zoomLevels || spec.zoomLevels.length === 0) {
+    scopeIndex = 0;
+    return;
+  }
+  const base = spec.zoomLevels.findIndex(
+    (level) => Math.abs(level.fov - spec.adsFov) < 0.01,
+  );
+  scopeIndex = base >= 0 ? base : 0;
+}
+
+function cycleScope(): void {
+  const levels = WEAPONS[lastWeapon].zoomLevels;
+  if (!levels || levels.length < 2 || !input.isAiming()) {
+    return;
+  }
+  scopeIndex = (scopeIndex + 1) % levels.length;
+}
+
 function createOfflineEvents(): GameEvents {
   return {
     onShot: (shooterId, origin, direction, weapon) => {
@@ -120,7 +141,7 @@ function createOfflineEvents(): GameEvents {
       hud.flashHit(headshot);
       audio.playHit(headshot);
     },
-    onKilled: (killerId, victimId, headshot, nextRespawnAt) => {
+    onKilled: (killerId, victimId, headshot, nextRespawnAt, killerWeapon) => {
       const killer = killerId
         ? (offlineGame?.getPlayer(killerId) ?? null)
         : null;
@@ -129,11 +150,16 @@ function createOfflineEvents(): GameEvents {
         killer?.name ?? "WORLD",
         victim?.name ?? "OPERATOR",
         headshot,
+        killerWeapon,
       );
       if (victimId === playerId) {
         dead = true;
         respawnAt = nextRespawnAt;
-        hud.showDeath();
+        hud.showDeath({
+          killerName: killer?.name ?? null,
+          killerWeapon,
+          headshot,
+        });
         hud.updateDeathCountdown(respawnAt);
         audio.playDeath();
       }
@@ -196,6 +222,7 @@ function startOffline(nextMode: GameMode): void {
   gun.setWeapon(spawn.weapon);
   gun.object.visible = true;
   lastWeapon = spawn.weapon;
+  resetScopeIndex(spawn.weapon);
 
   active = true;
   remotes.clear();
@@ -343,11 +370,16 @@ function bindSocket(client: GameSocket): void {
       killer?.name ?? "WORLD",
       victim?.name ?? "OPERATOR",
       payload.headshot,
+      payload.killerWeapon,
     );
     if (payload.playerId === playerId) {
       dead = true;
       respawnAt = payload.respawnAt;
-      hud.showDeath();
+      hud.showDeath({
+        killerName: killer?.name ?? null,
+        killerWeapon: payload.killerWeapon,
+        headshot: payload.headshot,
+      });
       hud.updateDeathCountdown(respawnAt);
       audio.playDeath();
     }
@@ -416,6 +448,7 @@ function startOnlineMatch(payload: GameStatePayload): void {
   pitch = 0;
   gun.setWeapon(local.weapon);
   gun.object.visible = true;
+  resetScopeIndex(local.weapon);
   remotes.clear();
   hud.startMatch();
   hud.setConnection("ONLINE");
@@ -505,6 +538,7 @@ function syncState(
   if (local.weapon !== lastWeapon) {
     lastWeapon = local.weapon;
     gun.setWeapon(local.weapon);
+    resetScopeIndex(local.weapon);
     lastShotAt = 0;
   }
 
@@ -530,6 +564,7 @@ function handleLocalRespawn(player: PlayerState): void {
   pitch = 0;
   lastWeapon = player.weapon;
   gun.setWeapon(player.weapon);
+  resetScopeIndex(player.weapon);
   if (!matchOver) {
     audio.playSpawn();
     input.setEnabled(true);
@@ -598,6 +633,7 @@ function requestWeapon(weapon: WeaponId): void {
   lastWeapon = weapon;
   lastShotAt = 0;
   gun.setWeapon(weapon);
+  resetScopeIndex(weapon);
   if (offlineGame) {
     offlineGame.selectWeapon(playerId, weapon);
   } else {
@@ -611,6 +647,9 @@ function handleInputActions(): void {
   }
   if (input.consumeSwitch()) {
     requestWeapon(nextWeapon(lastWeapon));
+  }
+  if (input.consumeScope()) {
+    cycleScope();
   }
   const slot = input.consumeWeaponSlot();
   if (slot) {
@@ -803,16 +842,23 @@ function updateCamera(delta: number): void {
 
   const aiming =
     !paused && !matchOver && !dead && input.isAiming();
-  const scoped = aiming && lastWeapon === "sniper";
   const spec = WEAPONS[lastWeapon];
-  const targetFov = aiming ? spec.adsFov : 75;
+  const zoomLevel = spec.zoomLevels?.[scopeIndex];
+  const adsFov = zoomLevel?.fov ?? spec.adsFov;
+  const scoped = aiming && spec.scopeOverlay === true;
+  const targetFov = aiming ? adsFov : 75;
   const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 14, delta);
   if (Math.abs(nextFov - camera.fov) > 0.02) {
     camera.fov = nextFov;
     camera.updateProjectionMatrix();
   }
 
-  hud.setAiming(aiming, scoped);
+  hud.setAiming(
+    aiming,
+    scoped,
+    zoomLevel?.label ?? "",
+    (spec.zoomLevels?.length ?? 0) > 1,
+  );
   gun.setAiming(aiming);
   gun.update(delta);
   gun.object.visible = !matchOver && !dead;
@@ -829,7 +875,9 @@ function animate(): void {
   if (canControl) {
     const look = input.consumeLookDelta();
     if (look.x !== 0 || look.y !== 0) {
-      const sensitivity = IS_TOUCH_DEVICE ? 0.0032 : 0.0022;
+      const zoomScale = THREE.MathUtils.clamp(camera.fov / 75, 0.25, 1);
+      const sensitivity =
+        (IS_TOUCH_DEVICE ? 0.0032 : 0.0022) * zoomScale;
       yaw -= look.x * sensitivity;
       pitch = clamp(
         pitch - look.y * sensitivity,
@@ -956,6 +1004,7 @@ hud.bindGame({
 
 document.body.classList.toggle("touch", IS_TOUCH_DEVICE);
 localPlayer.reset({ x: 0, y: 0, z: 10 });
+resetScopeIndex("rifle");
 hud.showMenu();
 hud.setConnection("LOCAL");
 hud.setPing("--");

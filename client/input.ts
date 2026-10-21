@@ -17,6 +17,7 @@ export class InputManager {
   private lookY = 0;
   private reloadRequested = false;
   private switchRequested = false;
+  private scopeRequested = false;
   private weaponSlotRequested: WeaponId | null = null;
 
   private readonly moveBase =
@@ -35,6 +36,8 @@ export class InputManager {
     document.querySelector<HTMLButtonElement>("#touch-reload");
   private readonly switchButton =
     document.querySelector<HTMLButtonElement>("#touch-switch");
+  private readonly scopeButton =
+    document.querySelector<HTMLButtonElement>("#touch-scope");
 
   private movePointer: number | null = null;
   private lookPointer: number | null = null;
@@ -47,6 +50,7 @@ export class InputManager {
     window.addEventListener("mousemove", this.onMouseMove);
     window.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mouseup", this.onMouseUp);
+    window.addEventListener("wheel", this.onWheel, { passive: false });
     window.addEventListener("blur", this.onBlur);
     window.addEventListener("contextmenu", this.onContextMenu);
 
@@ -74,6 +78,9 @@ export class InputManager {
     });
     this.bindPress(this.switchButton, () => {
       this.switchRequested = true;
+    });
+    this.bindPress(this.scopeButton, () => {
+      this.scopeRequested = true;
     });
   }
 
@@ -108,6 +115,9 @@ export class InputManager {
     }
     if (event.code === "KeyQ") {
       this.switchRequested = true;
+    }
+    if (event.code === "KeyV") {
+      this.scopeRequested = true;
     }
     if (event.code.startsWith("Digit")) {
       const slot = Number(event.code.slice(5));
@@ -151,6 +161,17 @@ export class InputManager {
     } else if (event.button === 2) {
       this.aiming = false;
     }
+  };
+
+  private onWheel = (event: WheelEvent): void => {
+    if (!this.enabled || document.pointerLockElement === null) {
+      return;
+    }
+    if (Math.abs(event.deltaY) < 1) {
+      return;
+    }
+    event.preventDefault();
+    this.scopeRequested = true;
   };
 
   private onBlur = (): void => {
@@ -326,6 +347,12 @@ export class InputManager {
     return requested;
   }
 
+  consumeScope(): boolean {
+    const requested = this.scopeRequested;
+    this.scopeRequested = false;
+    return requested;
+  }
+
   consumeWeaponSlot(): WeaponId | null {
     const requested = this.weaponSlotRequested;
     this.weaponSlotRequested = null;
@@ -344,6 +371,7 @@ export class InputManager {
     this.lookPointer = null;
     this.reloadRequested = false;
     this.switchRequested = false;
+    this.scopeRequested = false;
     this.weaponSlotRequested = null;
     if (this.moveKnob) {
       this.moveKnob.style.transform = "translate(-50%, -50%)";
@@ -356,6 +384,7 @@ export class InputManager {
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mousedown", this.onMouseDown);
     window.removeEventListener("mouseup", this.onMouseUp);
+    window.removeEventListener("wheel", this.onWheel);
     window.removeEventListener("blur", this.onBlur);
     window.removeEventListener("contextmenu", this.onContextMenu);
     this.clear();

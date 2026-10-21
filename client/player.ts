@@ -348,6 +348,28 @@ export class Gun {
       addBox(0.085, 0.24, 0.12, 0, -0.16, 0.03, this.gripMaterial);
       addBox(0.06, 0.035, 0.18, 0, 0.09, -0.14, accentMaterial);
       addBox(0.04, 0.04, 0.08, 0, 0.02, -0.31, this.darkMaterial);
+    } else if (weapon === "revolver") {
+      addBox(0.12, 0.14, 0.38, 0, 0, -0.16, this.darkMaterial);
+      addBox(0.14, 0.14, 0.17, 0, -0.01, -0.07, this.gripMaterial);
+      addBox(0.09, 0.25, 0.13, 0, -0.17, 0.04, this.gripMaterial);
+      addBox(0.06, 0.06, 0.28, 0, 0.01, -0.42, this.darkMaterial);
+      addBox(0.045, 0.03, 0.22, 0, 0.09, -0.19, accentMaterial);
+    } else if (weapon === "dmr") {
+      addBox(0.12, 0.14, 0.74, 0, 0, -0.22, this.darkMaterial);
+      addBox(0.055, 0.055, 0.54, 0, 0.01, -0.86, this.gripMaterial);
+      addBox(0.11, 0.18, 0.17, 0, -0.15, -0.04, this.gripMaterial);
+      addBox(0.1, 0.14, 0.3, 0, -0.05, 0.25, this.darkMaterial);
+      addBox(0.09, 0.09, 0.34, 0, 0.14, -0.24, this.darkMaterial);
+      addBox(0.075, 0.075, 0.035, 0, 0.14, -0.42, accentMaterial);
+      addBox(0.05, 0.03, 0.24, 0, 0.09, -0.09, accentMaterial);
+    } else if (weapon === "lmg") {
+      addBox(0.18, 0.18, 0.68, 0, 0, -0.2, this.darkMaterial);
+      addBox(0.06, 0.06, 0.5, 0, 0.01, -0.78, this.gripMaterial);
+      addBox(0.19, 0.22, 0.23, 0, -0.15, -0.08, this.darkMaterial);
+      addBox(0.11, 0.19, 0.18, 0, -0.16, 0.02, this.gripMaterial);
+      addBox(0.1, 0.14, 0.3, 0, -0.04, 0.3, this.darkMaterial);
+      addBox(0.07, 0.035, 0.36, 0, 0.11, -0.18, accentMaterial);
+      addBox(0.04, 0.1, 0.06, 0, 0.15, -0.44, this.darkMaterial);
     } else if (weapon === "shotgun") {
       addBox(0.14, 0.15, 0.7, 0, 0, -0.18, this.darkMaterial);
       addBox(0.09, 0.09, 0.5, 0, 0.01, -0.65, this.gripMaterial);
@@ -388,7 +410,15 @@ export class Gun {
         toneMapped: false,
       }),
     );
-    flash.position.set(0, 0.01, weapon === "pistol" ? -0.35 : -0.78);
+    const flashZ =
+      weapon === "pistol" || weapon === "revolver"
+        ? -0.52
+        : weapon === "sniper" || weapon === "dmr" || weapon === "lmg"
+          ? -1.02
+          : weapon === "shotgun"
+            ? -0.94
+            : -0.78;
+    flash.position.set(0, 0.01, flashZ);
     flash.visible = false;
     flash.renderOrder = 10;
     group.add(flash);

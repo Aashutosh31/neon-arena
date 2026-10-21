@@ -82,6 +82,64 @@ button {
   opacity: 1;
 }
 
+#scope-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(54vmin, 560px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(75, 225, 255, 0.28);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    inset 0 0 30px rgba(0, 229, 255, 0.08),
+    0 0 18px rgba(0, 229, 255, 0.1);
+}
+
+#scope-reticle::before,
+#scope-reticle::after {
+  content: "";
+  position: absolute;
+  background: rgba(130, 238, 255, 0.42);
+}
+
+#scope-reticle::before {
+  top: 50%;
+  left: 7%;
+  right: 7%;
+  height: 1px;
+}
+
+#scope-reticle::after {
+  top: 7%;
+  bottom: 7%;
+  left: 50%;
+  width: 1px;
+}
+
+#scope-zoom {
+  position: absolute;
+  top: 75%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+#scope-hint {
+  position: absolute;
+  top: 79%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(126, 151, 169, 0.8);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
 #hud {
   position: fixed;
   inset: 0;
@@ -518,6 +576,19 @@ body.playing #hud {
   letter-spacing: 0.18em;
 }
 
+#optic-status {
+  min-height: 10px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+#optic-status:empty {
+  display: none;
+}
+
 #ammo-line {
   display: flex;
   align-items: baseline;
@@ -572,10 +643,10 @@ body.playing #hud {
 .weapon-slot {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-width: 52px;
+  gap: 4px;
+  min-width: 46px;
   height: 24px;
-  padding: 0 7px;
+  padding: 0 6px;
   border: 1px solid rgba(88, 220, 255, 0.16);
   background: rgba(5, 12, 20, 0.66);
   color: rgba(233, 248, 255, 0.54);
@@ -1054,6 +1125,17 @@ body:not(.touch) #lock-hint {
   color: var(--danger);
 }
 
+#death-killer {
+  margin: 0 0 12px;
+  color: rgba(255, 184, 195, 0.88);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 #death-subtitle {
   color: #ffb8c3;
   font-family: var(--mono);
@@ -1255,7 +1337,7 @@ body.touch.playing #touch-pause {
   z-index: 3;
   display: grid;
   grid-template-columns: repeat(3, 56px);
-  grid-template-rows: 76px 52px;
+  grid-template-rows: 52px 76px;
   gap: 8px;
   align-items: end;
   justify-items: center;
@@ -1280,7 +1362,7 @@ body.touch.playing #touch-pause {
 
 .touch-button.fire {
   grid-column: 3;
-  grid-row: 1 / span 2;
+  grid-row: 2;
   align-self: center;
   width: 82px;
   height: 82px;
@@ -1312,6 +1394,11 @@ body.touch.playing #touch-pause {
 
 #touch-switch {
   grid-column: 1;
+  grid-row: 1;
+}
+
+#touch-scope {
+  grid-column: 3;
   grid-row: 1;
 }
 
@@ -1526,7 +1613,7 @@ body.touch .touch-hint {
 
   .touch-actions {
     grid-template-columns: repeat(3, 48px);
-    grid-template-rows: 66px 46px;
+    grid-template-rows: 52px 70px;
     gap: 6px;
   }
 
@@ -1537,8 +1624,8 @@ body.touch .touch-hint {
   }
 
   .touch-button.fire {
-    width: 70px;
-    height: 70px;
+    width: 66px;
+    height: 66px;
   }
 }
 

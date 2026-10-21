@@ -1,4 +1,5 @@
 import {
+  ARENA_HALF_EXTENT,
   PLAYER_HALF_DEPTH,
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
@@ -16,118 +17,641 @@ export interface MapObject {
   color: number;
 }
 
-export const FLOOR_SIZE = 50;
+export interface RoofSpec {
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  y: number;
+  height: number;
+  color: number;
+  style: "flat" | "hip";
+}
+
+export interface PanelSpec {
+  x: number;
+  y: number;
+  z: number;
+  width: number;
+  height: number;
+  depth: number;
+  color: number;
+}
+
+export interface SidewalkSpec {
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+}
+
+export interface StreetLightSpec {
+  x: number;
+  z: number;
+  height: number;
+  color: number;
+}
+
+export const FLOOR_SIZE = ARENA_HALF_EXTENT * 2 + 2;
 export const FLOOR_Y = 0;
 export const FLOOR_COLOR = 0x0a111c;
 
-/*
- * (x, z) is the center and y is the bottom of the box.
- * The four perimeter walls have inner faces at +/-24; the six interior objects
- * provide three tall sight-line breakers and three low cover pieces.
- */
-export const MAP_OBJECTS: readonly MapObject[] = [
-  {
-    id: "wall-north",
-    x: 0,
-    y: 0,
-    z: -24.5,
-    width: FLOOR_SIZE,
-    height: 8,
-    depth: 1,
-    color: 0x0a1422,
-  },
-  {
-    id: "wall-south",
-    x: 0,
-    y: 0,
-    z: 24.5,
-    width: FLOOR_SIZE,
-    height: 8,
-    depth: 1,
-    color: 0x0a1422,
-  },
-  {
-    id: "wall-west",
-    x: -24.5,
-    y: 0,
-    z: 0,
-    width: 1,
-    height: 8,
-    depth: FLOOR_SIZE - 2,
-    color: 0x0a1422,
-  },
-  {
-    id: "wall-east",
-    x: 24.5,
-    y: 0,
-    z: 0,
-    width: 1,
-    height: 8,
-    depth: FLOOR_SIZE - 2,
-    color: 0x0a1422,
-  },
+interface WallOpening {
+  /** Offset from the center of the wall. */
+  center: number;
+  width: number;
+  bottom: number;
+  top: number;
+}
 
-  {
-    id: "tower-north",
-    x: 0,
-    y: 0,
-    z: -14,
-    width: 4,
-    height: 6,
-    depth: 4,
-    color: 0x1a2f4a,
-  },
-  {
-    id: "tower-west",
-    x: -11,
-    y: 0,
-    z: 0,
-    width: 4,
-    height: 5,
-    depth: 4,
-    color: 0x16283f,
-  },
-  {
-    id: "tower-east",
-    x: 11,
-    y: 0,
-    z: 0,
-    width: 4,
-    height: 5,
-    depth: 4,
-    color: 0x182c45,
-  },
-  {
-    id: "cover-south",
-    x: 0,
-    y: 0,
-    z: 6,
-    width: 6,
-    height: 1,
-    depth: 2,
-    color: 0x20405a,
-  },
-  {
-    id: "cover-west",
-    x: -6,
-    y: 0,
-    z: -4,
-    width: 3,
-    height: 1,
-    depth: 3,
-    color: 0x1c3a52,
-  },
-  {
-    id: "cover-east",
-    x: 6,
-    y: 0,
-    z: -4,
-    width: 3,
-    height: 1,
-    depth: 3,
-    color: 0x1e3d56,
-  },
-];
+type Side = "north" | "south" | "east" | "west";
+
+interface BuildingSpec {
+  id: string;
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  height: number;
+  wallColor: number;
+  roofColor: number;
+  accentColor: number;
+  front: Side;
+  roofStyle: "flat" | "hip";
+}
+
+const objects: MapObject[] = [];
+const roofs: RoofSpec[] = [];
+const panels: PanelSpec[] = [];
+const sidewalks: SidewalkSpec[] = [];
+const streetLights: StreetLightSpec[] = [];
+let objectSerial = 0;
+
+function addBox(
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+  width: number,
+  height: number,
+  depth: number,
+  color: number,
+): void {
+  objects.push({ id, x, y, z, width, height, depth, color });
+}
+
+function addWall(
+  id: string,
+  axis: "x" | "z",
+  fixed: number,
+  from: number,
+  to: number,
+  height: number,
+  thickness: number,
+  color: number,
+  openings: readonly WallOpening[] = [],
+): void {
+  const wallCenter = (from + to) / 2;
+  const sorted = [...openings].sort((a, b) => a.center - b.center);
+  let cursor = from;
+
+  const addPiece = (
+    start: number,
+    end: number,
+    bottom: number,
+    top: number,
+    kind: string,
+  ): void => {
+    if (end - start < 0.02 || top - bottom < 0.02) {
+      return;
+    }
+    objectSerial += 1;
+    const center = (start + end) / 2;
+    const pieceHeight = top - bottom;
+    if (axis === "x") {
+      addBox(
+        `${id}-${kind}-${objectSerial}`,
+        center,
+        bottom,
+        fixed,
+        end - start,
+        pieceHeight,
+        thickness,
+        color,
+      );
+    } else {
+      addBox(
+        `${id}-${kind}-${objectSerial}`,
+        fixed,
+        bottom,
+        center,
+        thickness,
+        pieceHeight,
+        end - start,
+        color,
+      );
+    }
+  };
+
+  for (const opening of sorted) {
+    const start = wallCenter + opening.center - opening.width / 2;
+    const end = wallCenter + opening.center + opening.width / 2;
+    if (start > cursor) {
+      addPiece(cursor, start, 0, height, "wall");
+    }
+    if (opening.bottom > 0) {
+      addPiece(start, end, 0, opening.bottom, "sill");
+    }
+    if (opening.top < height) {
+      addPiece(start, end, opening.top, height, "header");
+    }
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < to) {
+    addPiece(cursor, to, 0, height, "wall");
+  }
+}
+
+function door(center = 0): WallOpening {
+  return { center, width: 2.6, bottom: 0, top: 2.95 };
+}
+
+function window(center: number, width = 2.2): WallOpening {
+  return { center, width, bottom: 1.05, top: 2.4 };
+}
+
+function opposite(side: Side): Side {
+  switch (side) {
+    case "north":
+      return "south";
+    case "south":
+      return "north";
+    case "east":
+      return "west";
+    case "west":
+      return "east";
+  }
+}
+
+function openingsFor(
+  side: Side,
+  spec: BuildingSpec,
+): readonly WallOpening[] {
+  const span = side === "north" || side === "south" ? spec.width : spec.depth;
+  const offset = Math.min(span * 0.29, 4.7);
+  if (side === spec.front || side === opposite(spec.front)) {
+    return [
+      window(-offset, 2.1),
+      door(0),
+      window(offset, 2.1),
+    ];
+  }
+  return [
+    window(-offset, 2.35),
+    window(offset, 2.35),
+  ];
+}
+
+const BUILDING_X = [-34, -12.75, 12.75, 34] as const;
+const BUILDING_Z = [-34, -12.75, 12.75, 34] as const;
+const BUILDING_NAMES = [
+  "northline",
+  "arcade",
+  "foundry",
+  "relay",
+  "metro",
+  "hotel",
+  "market",
+  "atrium",
+  "villa",
+  "depot",
+  "workshop",
+  "cafe",
+  "garage",
+  "loft",
+  "cinema",
+  "terminal",
+] as const;
+const WALL_COLORS = [
+  0x315570,
+  0x2e516b,
+  0x34566d,
+  0x2b4f69,
+  0x3a5a72,
+  0x2a4a62,
+  0x385c73,
+  0x2f536c,
+] as const;
+const ROOF_COLORS = [
+  0x162a3d,
+  0x14283a,
+  0x172d40,
+  0x132638,
+  0x1a3042,
+] as const;
+const ACCENT_COLORS = [
+  0x00e5ff,
+  0xff5a8a,
+  0xffc247,
+  0x8b5cf6,
+  0x2dd4bf,
+  0xff7a45,
+] as const;
+const WINDOW_COLORS = [
+  0xffd88a,
+  0x9be7ff,
+  0xff9ec4,
+  0xc4b5fd,
+  0xfff0c2,
+] as const;
+
+const BUILDINGS: readonly BuildingSpec[] = BUILDING_Z.flatMap(
+  (z, zIndex) =>
+    BUILDING_X.map((x, xIndex) => {
+      const index = zIndex * BUILDING_X.length + xIndex;
+      const width = 13.8 + ((index * 7) % 5) * 0.65;
+      const depth = 13.2 + ((index * 11) % 5) * 0.6;
+      const height = 7.1 + ((index * 13) % 6) * 1.15;
+      const front: Side =
+        Math.abs(x) >= Math.abs(z)
+          ? x <= 0
+            ? "east"
+            : "west"
+          : z <= 0
+            ? "south"
+            : "north";
+      return {
+        id: BUILDING_NAMES[index],
+        x,
+        z,
+        width,
+        depth,
+        height,
+        wallColor: WALL_COLORS[index % WALL_COLORS.length],
+        roofColor: ROOF_COLORS[index % ROOF_COLORS.length],
+        accentColor: ACCENT_COLORS[index % ACCENT_COLORS.length],
+        front,
+        roofStyle: index % 4 === 1 ? "hip" : "flat",
+      };
+    }),
+);
+
+const WALL_THICKNESS = 0.45;
+
+function sideEdges(
+  spec: BuildingSpec,
+): Record<Side, { fixed: number; from: number; to: number }> {
+  const x0 = spec.x - spec.width / 2;
+  const x1 = spec.x + spec.width / 2;
+  const z0 = spec.z - spec.depth / 2;
+  const z1 = spec.z + spec.depth / 2;
+  return {
+    north: { fixed: z0, from: x0, to: x1 },
+    south: { fixed: z1, from: x0, to: x1 },
+    east: { fixed: x1, from: z0, to: z1 },
+    west: { fixed: x0, from: z0, to: z1 },
+  };
+}
+
+function addPanel(
+  side: Side,
+  spec: BuildingSpec,
+  offset: number,
+  y: number,
+  color: number,
+  width: number,
+  height: number,
+): void {
+  const edges = sideEdges(spec)[side];
+  const thickness = 0.07;
+  const faceOffset = WALL_THICKNESS / 2 + thickness / 2;
+  if (side === "north" || side === "south") {
+    panels.push({
+      x: spec.x + offset,
+      y,
+      z: edges.fixed + (side === "north" ? -faceOffset : faceOffset),
+      width,
+      height,
+      depth: thickness,
+      color,
+    });
+  } else {
+    panels.push({
+      x: edges.fixed + (side === "west" ? -faceOffset : faceOffset),
+      y,
+      z: spec.z + offset,
+      width: thickness,
+      height,
+      depth: width,
+      color,
+    });
+  }
+}
+
+function addBuilding(spec: BuildingSpec, index: number): void {
+  const x0 = spec.x - spec.width / 2;
+  const x1 = spec.x + spec.width / 2;
+  const z0 = spec.z - spec.depth / 2;
+  const z1 = spec.z + spec.depth / 2;
+
+  addWall(
+    `${spec.id}-north`,
+    "x",
+    z0,
+    x0,
+    x1,
+    spec.height,
+    WALL_THICKNESS,
+    spec.wallColor,
+    openingsFor("north", spec),
+  );
+  addWall(
+    `${spec.id}-south`,
+    "x",
+    z1,
+    x0,
+    x1,
+    spec.height,
+    WALL_THICKNESS,
+    spec.wallColor,
+    openingsFor("south", spec),
+  );
+  addWall(
+    `${spec.id}-west`,
+    "z",
+    x0,
+    z0,
+    z1,
+    spec.height,
+    WALL_THICKNESS,
+    spec.wallColor,
+    openingsFor("west", spec),
+  );
+  addWall(
+    `${spec.id}-east`,
+    "z",
+    x1,
+    z0,
+    z1,
+    spec.height,
+    WALL_THICKNESS,
+    spec.wallColor,
+    openingsFor("east", spec),
+  );
+
+  const roofHeight = 0.34;
+  addBox(
+    `${spec.id}-roof`,
+    spec.x,
+    spec.height,
+    spec.z,
+    spec.width + 0.3,
+    roofHeight,
+    spec.depth + 0.3,
+    spec.roofColor,
+  );
+  roofs.push({
+    x: spec.x,
+    z: spec.z,
+    width: spec.width + 0.3,
+    depth: spec.depth + 0.3,
+    y: spec.height + roofHeight,
+    height: 2.1 + (index % 3) * 0.35,
+    color: spec.roofColor,
+    style: spec.roofStyle,
+  });
+
+  const partitionX = spec.x + (index % 2 === 0 ? -3.1 : 3.1);
+  addWall(
+    `${spec.id}-partition`,
+    "z",
+    partitionX,
+    z0 + 0.45,
+    z1 - 0.45,
+    3.2,
+    0.3,
+    spec.wallColor,
+    [door(0)],
+  );
+
+  const deskX = spec.x + (index % 2 === 0 ? 1 : -1) * spec.width * 0.2;
+  const deskZ = spec.z + (index % 2 === 0 ? -1 : 1) * spec.depth * 0.18;
+  addBox(
+    `${spec.id}-desk`,
+    deskX,
+    0,
+    deskZ,
+    2.8,
+    1.05,
+    1.1,
+    spec.accentColor,
+  );
+  addBox(
+    `${spec.id}-crate`,
+    spec.x + (index % 2 === 0 ? -1 : 1) * spec.width * 0.25,
+    0,
+    spec.z + (index % 2 === 0 ? 1 : -1) * spec.depth * 0.26,
+    1.25,
+    1.25,
+    1.25,
+    0x315a75,
+  );
+
+  sidewalks.push({
+    x: spec.x,
+    z: spec.z,
+    width: spec.width + 3.2,
+    depth: spec.depth + 3.2,
+  });
+
+  const signWidth = Math.min(spec.width * 0.36, 4.6);
+  addPanel(
+    spec.front,
+    spec,
+    0,
+    Math.min(3.55, spec.height - 1.4),
+    spec.accentColor,
+    signWidth,
+    0.72,
+  );
+
+  const levelSpacing = 2.45;
+  let level = 3.95;
+  let levelIndex = 0;
+  while (level + 0.8 < spec.height - 0.6) {
+    for (const side of ["north", "south", "east", "west"] as const) {
+      const span = side === "north" || side === "south"
+        ? spec.width
+        : spec.depth;
+      const offset = span * 0.27;
+      for (const direction of [-1, 1]) {
+        const color =
+          WINDOW_COLORS[(index + levelIndex + (side === "east" ? 1 : 0)) %
+            WINDOW_COLORS.length];
+        addPanel(
+          side,
+          spec,
+          direction * offset,
+          level,
+          color,
+          1.65,
+          0.85,
+        );
+      }
+    }
+    level += levelSpacing;
+    levelIndex += 1;
+  }
+}
+
+function addFountain(): void {
+  addBox("fountain-north", 0, 0, -3.35, 7.2, 0.82, 0.45, 0x23506b);
+  addBox("fountain-south", 0, 0, 3.35, 7.2, 0.82, 0.45, 0x23506b);
+  addBox("fountain-west", -3.35, 0, 0, 0.45, 0.82, 6.25, 0x23506b);
+  addBox("fountain-east", 3.35, 0, 0, 0.45, 0.82, 6.25, 0x23506b);
+  addBox("fountain-core", 0, 0, 0, 1.35, 1.55, 1.35, 0x2c5a79);
+}
+
+function addPlazaCover(): void {
+  const positions = [
+    [-7.2, -7.2],
+    [7.2, -7.2],
+    [-7.2, 7.2],
+    [7.2, 7.2],
+  ] as const;
+  positions.forEach(([x, z], index) => {
+    addBox(
+      `plaza-planter-${index}`,
+      x,
+      0,
+      z,
+      1.55,
+      0.95,
+      1.55,
+      0x284c64,
+    );
+  });
+
+  const barrierSpots = [
+    [-23.4, -10, true],
+    [-23.4, 10, true],
+    [23.4, -10, true],
+    [23.4, 10, true],
+    [-10, -23.4, false],
+    [10, -23.4, false],
+    [-10, 23.4, false],
+    [10, 23.4, false],
+  ] as const;
+  barrierSpots.forEach(([x, z, vertical], index) => {
+    addBox(
+      `street-barrier-${index}`,
+      x,
+      0,
+      z,
+      vertical ? 0.75 : 4.2,
+      1.05,
+      vertical ? 4.2 : 0.75,
+      0x2a4f68,
+    );
+  });
+}
+
+function addStreetLights(): void {
+  const spots: readonly [number, number][] = [
+    [-3.9, -36],
+    [3.9, -36],
+    [-3.9, -18],
+    [3.9, -18],
+    [-3.9, 18],
+    [3.9, 18],
+    [-3.9, 36],
+    [3.9, 36],
+    [-36, -3.9],
+    [-36, 3.9],
+    [-18, -3.9],
+    [-18, 3.9],
+    [18, -3.9],
+    [18, 3.9],
+    [36, -3.9],
+    [36, 3.9],
+  ];
+  for (const [x, z] of spots) {
+    streetLights.push({ x, z, height: 5.8, color: 0xffb35c });
+  }
+}
+
+const waypoints: Vec3[] = [];
+for (const z of [-38, -24, -11, 11, 24, 38]) {
+  waypoints.push({ x: 0, y: 0, z });
+  waypoints.push({ x: -23.4, y: 0, z });
+  waypoints.push({ x: 23.4, y: 0, z });
+}
+for (const x of [-38, -24, -11, 11, 24, 38]) {
+  waypoints.push({ x, y: 0, z: 0 });
+  waypoints.push({ x, y: 0, z: -23.4 });
+  waypoints.push({ x, y: 0, z: 23.4 });
+}
+for (const x of [-43, 43]) {
+  waypoints.push({ x, y: 0, z: -23.4 });
+  waypoints.push({ x, y: 0, z: 23.4 });
+}
+for (const z of [-43, 43]) {
+  waypoints.push({ x: -23.4, y: 0, z });
+  waypoints.push({ x: 23.4, y: 0, z });
+}
+
+addBox(
+  "wall-north",
+  0,
+  0,
+  -ARENA_HALF_EXTENT - 0.5,
+  FLOOR_SIZE,
+  8,
+  1,
+  0x0a1422,
+);
+addBox(
+  "wall-south",
+  0,
+  0,
+  ARENA_HALF_EXTENT + 0.5,
+  FLOOR_SIZE,
+  8,
+  1,
+  0x0a1422,
+);
+addBox(
+  "wall-west",
+  -ARENA_HALF_EXTENT - 0.5,
+  0,
+  0,
+  1,
+  8,
+  FLOOR_SIZE - 2,
+  0x0a1422,
+);
+addBox(
+  "wall-east",
+  ARENA_HALF_EXTENT + 0.5,
+  0,
+  0,
+  1,
+  8,
+  FLOOR_SIZE - 2,
+  0x0a1422,
+);
+
+BUILDINGS.forEach(addBuilding);
+addFountain();
+addPlazaCover();
+addStreetLights();
+
+export const MAP_OBJECTS: readonly MapObject[] = objects;
+export const MAP_ROOFS: readonly RoofSpec[] = roofs;
+export const MAP_WINDOWS: readonly PanelSpec[] = panels;
+export const MAP_SIDEWALKS: readonly SidewalkSpec[] = sidewalks;
+export const MAP_STREETLIGHTS: readonly StreetLightSpec[] = streetLights;
+export const MAP_WAYPOINTS: readonly Vec3[] = waypoints;
 
 export function aabbHitsMap(
   minX: number,

@@ -1,4 +1,5 @@
 import {
+  ARENA_HALF_EXTENT,
   ARENA_LIMIT,
   BOT_COUNT,
   EYE_HEIGHT,
@@ -14,7 +15,12 @@ import {
   hasLineOfSight,
   spreadDirection,
 } from "./combat";
-import { MAP_OBJECTS, playerHitsMap, type MapObject } from "./map";
+import {
+  MAP_OBJECTS,
+  MAP_WAYPOINTS,
+  playerHitsMap,
+  type MapObject,
+} from "./map";
 import { simulateMovement } from "./movement";
 import type {
   GameMode,
@@ -111,6 +117,7 @@ export interface GameEvents {
     victimId: string,
     headshot: boolean,
     respawnAt: number,
+    killerWeapon: WeaponId | null,
   ) => void;
   onRespawn?: (player: PlayerState) => void;
   onMatchOver?: (
@@ -144,19 +151,6 @@ const EMPTY_INPUT: MovementInput = {
   yaw: 0,
   ads: false,
 };
-
-const BOT_WAYPOINTS: readonly Vec3[] = [
-  { x: -18, y: 0, z: -18 },
-  { x: 18, y: 0, z: -18 },
-  { x: -18, y: 0, z: 18 },
-  { x: 18, y: 0, z: 18 },
-  { x: 0, y: 0, z: -21 },
-  { x: 0, y: 0, z: 21 },
-  { x: -21, y: 0, z: 0 },
-  { x: 21, y: 0, z: 0 },
-  { x: -16, y: 0, z: 6 },
-  { x: 16, y: 0, z: -6 },
-];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -631,11 +625,13 @@ export class GameSimulation {
       }
     }
 
+    const killerWeapon = killer.id === victim.id ? null : killer.weapon;
     this.events.onKilled?.(
       killer.id === victim.id ? null : killer.id,
       victim.id,
       headshot,
       victim.deadUntil,
+      killerWeapon,
     );
   }
 
@@ -726,21 +722,24 @@ export class GameSimulation {
   }
 
   private pickSpawn(team: TeamId): { position: Vec3; yaw: number } {
+    const spawnDepth = ARENA_HALF_EXTENT - 3.5;
+    const spawnWidth = 4.2;
     for (let attempt = 0; attempt < 40; attempt += 1) {
       let x = 0;
       let z = 0;
       let yaw = Math.random() * Math.PI * 2;
       if (this.mode === "tdm" && team === "alpha") {
-        x = (Math.random() * 2 - 1) * 16;
-        z = 13 + Math.random() * 8;
+        x = (Math.random() * 2 - 1) * spawnWidth;
+        z = spawnDepth + Math.random() * 2;
         yaw = 0;
       } else if (this.mode === "tdm" && team === "bravo") {
-        x = (Math.random() * 2 - 1) * 16;
-        z = -21 + Math.random() * 8;
+        x = (Math.random() * 2 - 1) * spawnWidth;
+        z = -spawnDepth - Math.random() * 2;
         yaw = Math.PI;
       } else {
-        x = (Math.random() * 2 - 1) * 20;
-        z = (Math.random() * 2 - 1) * 20;
+        const extent = ARENA_HALF_EXTENT - 3;
+        x = (Math.random() * 2 - 1) * extent;
+        z = (Math.random() * 2 - 1) * extent;
       }
 
       if (!playerHitsMap(x, 0, z)) {
@@ -761,7 +760,7 @@ export class GameSimulation {
         }
       }
     }
-    return { position: { x: 0, y: 0, z: 0 }, yaw: 0 };
+    return { position: { x: 0, y: 0, z: ARENA_HALF_EXTENT - 4 }, yaw: 0 };
   }
 
   private updateBot(player: SimPlayer, now: number): void {
@@ -833,7 +832,7 @@ export class GameSimulation {
       } else if (now - player.bot.stuckSince > 700) {
         player.bot.stuckSince = 0;
         player.bot.waypoint =
-          BOT_WAYPOINTS[Math.floor(Math.random() * BOT_WAYPOINTS.length)];
+          MAP_WAYPOINTS[Math.floor(Math.random() * MAP_WAYPOINTS.length)];
         player.input.jump = true;
         player.input.left = Math.random() < 0.5;
         player.input.right = !player.input.left;
@@ -847,7 +846,7 @@ export class GameSimulation {
     if (!visible) {
       if (!player.bot.waypoint) {
         player.bot.waypoint =
-          BOT_WAYPOINTS[Math.floor(Math.random() * BOT_WAYPOINTS.length)];
+          MAP_WAYPOINTS[Math.floor(Math.random() * MAP_WAYPOINTS.length)];
       }
       const waypoint = player.bot.waypoint;
       if (waypoint) {

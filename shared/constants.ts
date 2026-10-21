@@ -25,11 +25,12 @@ export const EYE_HEIGHT = 1.6;
 export const HEAD_HEIGHT = PLAYER_HEIGHT - 0.34;
 
 /*
- * Perimeter walls have their inner faces at x/z = +/-24. This is the maximum
- * player-center coordinate; the AABB is already stopped by the wall collision,
- * so this value is only a final safety clamp.
+ * The arena interior is 92x92. This is the maximum player-center coordinate;
+ * the AABB is already stopped by the perimeter wall collision, so this value
+ * is only a final safety clamp.
  */
-export const ARENA_LIMIT = 24 - PLAYER_HALF_WIDTH;
+export const ARENA_HALF_EXTENT = 46;
+export const ARENA_LIMIT = ARENA_HALF_EXTENT - PLAYER_HALF_WIDTH;
 
 export const GRAVITY = -25;
 export const JUMP_STRENGTH = 8;

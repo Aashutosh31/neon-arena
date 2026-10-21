@@ -7,7 +7,15 @@ export interface Vec3 {
 
 export type GameMode = "tdm" | "ffa";
 export type TeamId = "alpha" | "bravo" | "ffa";
-export type WeaponId = "rifle" | "smg" | "shotgun" | "sniper" | "pistol";
+export type WeaponId =
+  | "rifle"
+  | "smg"
+  | "shotgun"
+  | "sniper"
+  | "dmr"
+  | "lmg"
+  | "pistol"
+  | "revolver";
 
 /** Battlefield mutators. Offline custom matches may import these as a mod. */
 export interface GameRules {
@@ -113,6 +121,7 @@ export interface PlayerHitPayload {
 export interface PlayerDiedPayload {
   playerId: string;
   killerId: string | null;
+  killerWeapon: WeaponId | null;
   headshot: boolean;
   /** Server timestamp (ms) when the respawn will happen. */
   respawnAt: number;

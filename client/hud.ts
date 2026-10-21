@@ -37,6 +37,8 @@ export class Hud {
   private readonly searching = byId<HTMLDivElement>("searching");
   private readonly pause = byId<HTMLDivElement>("pause");
   private readonly death = byId<HTMLDivElement>("death-overlay");
+  private readonly deathTitle = byId<HTMLHeadingElement>("death-title");
+  private readonly deathKiller = byId<HTMLDivElement>("death-killer");
   private readonly deathSubtitle = byId<HTMLDivElement>("death-subtitle");
   private readonly matchOver = byId<HTMLDivElement>("match-over");
   private readonly matchOverTitle = byId<HTMLDivElement>("match-over-title");
@@ -46,6 +48,9 @@ export class Hud {
   private readonly ping = byId<HTMLDivElement>("ping");
   private readonly crosshair = byId<HTMLDivElement>("crosshair");
   private readonly scope = byId<HTMLDivElement>("scope");
+  private readonly scopeZoom = byId<HTMLDivElement>("scope-zoom");
+  private readonly scopeHint = byId<HTMLDivElement>("scope-hint");
+  private readonly opticStatus = byId<HTMLDivElement>("optic-status");
   private readonly healthBar = byId<HTMLDivElement>("health-bar");
   private readonly healthFill = byId<HTMLDivElement>("health-fill");
   private readonly healthLabel = byId<HTMLDivElement>("health-label");
@@ -359,14 +364,55 @@ export class Hud {
     }
   }
 
-  setAiming(aiming: boolean, scoped: boolean): void {
+  setAiming(
+    aiming: boolean,
+    scoped: boolean,
+    zoomLabel = "",
+    canCycle = false,
+  ): void {
     this.crosshair?.classList.toggle("ads", aiming);
     this.crosshair?.classList.toggle("hidden", scoped);
     this.scope?.classList.toggle("visible", scoped);
+    if (this.scopeZoom) {
+      this.scopeZoom.textContent = zoomLabel;
+    }
+    if (this.scopeHint) {
+      const touch = document.body.classList.contains("touch");
+      this.scopeHint.textContent = canCycle
+        ? touch
+          ? "TAP ZOOM TO CYCLE"
+          : "V / WHEEL TO CYCLE"
+        : "";
+    }
+    if (this.opticStatus) {
+      this.opticStatus.textContent = aiming && zoomLabel ? zoomLabel : "";
+    }
   }
 
-  showDeath(): void {
+  showDeath(details: {
+    killerName?: string | null;
+    killerWeapon?: WeaponId | null;
+    headshot?: boolean;
+  } = {}): void {
     this.death?.classList.add("visible");
+    if (this.deathTitle) {
+      this.deathTitle.textContent = "YOU DIED";
+    }
+    if (this.deathKiller) {
+      if (details.killerName) {
+        const tags: string[] = [];
+        if (details.headshot) {
+          tags.push("HEADSHOT");
+        }
+        if (details.killerWeapon) {
+          tags.push(WEAPONS[details.killerWeapon].name.toUpperCase());
+        }
+        const suffix = tags.length > 0 ? ` · ${tags.join(" · ")}` : "";
+        this.deathKiller.textContent = `KILLED BY ${details.killerName.toUpperCase()}${suffix}`;
+      } else {
+        this.deathKiller.textContent = "NO SURVIVORS · STAY SHARP";
+      }
+    }
     if (this.deathSubtitle) {
       this.deathSubtitle.textContent = "RESPAWNING IN 3";
     }
@@ -391,6 +437,7 @@ export class Hud {
     killer: string,
     victim: string,
     headshot: boolean,
+    weapon?: WeaponId | null,
   ): void {
     if (!this.killFeed) {
       return;
@@ -402,7 +449,13 @@ export class Hud {
     killerNode.textContent = killer;
     const action = document.createElement("span");
     action.className = "kill-weapon";
-    action.textContent = headshot ? "HEADSHOT" : "ELIMINATED";
+    const weaponLabel = weapon ? WEAPONS[weapon].shortName : "";
+    action.textContent = [
+      weaponLabel,
+      headshot ? "HEADSHOT" : "ELIMINATED",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const victimNode = document.createElement("span");
     victimNode.className = "kill-victim";
     victimNode.textContent = victim;
