@@ -87,6 +87,7 @@ export interface PlayerDiedPayload {
 export interface ClientToServerEvents {
   player_input: (payload: PlayerInputPayload) => void;
   player_shoot: (payload: PlayerShootPayload) => void;
+  client_ping: (callback: () => void) => void;
 }
 
 export interface ServerToClientEvents {

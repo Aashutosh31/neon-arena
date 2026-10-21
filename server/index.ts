@@ -349,6 +349,12 @@ io.on("connection", (socket) => {
     };
   });
 
+  socket.on("client_ping", (callback) => {
+    if (typeof callback === "function") {
+      callback();
+    }
+  });
+
   socket.on("player_shoot", (payload: PlayerShootPayload) => {
     const shooter = players.get(socket.id);
     if (!shooter || shooter.health <= 0) {

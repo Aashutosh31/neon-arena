@@ -82,10 +82,22 @@ export class Player {
     this.syncMesh();
   }
 
+  /** Hard correction for a large desync, keeping current momentum. */
+  snapTo(position: Vec3): void {
+    this.position.set(position.x, position.y, position.z);
+    this.syncMesh();
+  }
+
+  /** Blend a small server correction into the predicted position. */
+  smoothTo(target: THREE.Vector3, blend: number): void {
+    this.position.lerp(target, blend);
+    this.syncMesh();
+  }
+
   /**
    * Predicts this frame locally with the shared simulation. The server runs
-   * the same function on its fixed tick; game_state corrections snap us back
-   * only when prediction diverges beyond the reconciliation threshold.
+   * the same function on its fixed tick; game_state corrections are blended
+   * into the prediction, with a hard snap only for major desyncs.
    *
    * @param delta Seconds since the last frame.
    * @param input Current key state.

@@ -196,8 +196,14 @@ interface RemotePlayer {
 
 const REMOTE_LERP_RATE = 15;
 const SEND_INTERVAL_MS = 1000 / NETWORK_TICK_RATE;
-// Small prediction errors are ignored; large ones indicate a real desync.
-const RECONCILE_DISTANCE_SQ = 0.5 * 0.5;
+const MAX_FRAME_DELTA = 0.1;
+// Ignore tiny prediction drift; blend normal latency; hard-snap only real desyncs.
+const RECONCILE_DEADZONE_SQ = 0.5 * 0.5;
+const RECONCILE_FAST_DISTANCE_SQ = 2 * 2;
+const HARD_SNAP_DISTANCE_SQ = 5 * 5;
+const RECONCILE_RATE = 12;
+const RECONCILE_FAST_RATE = 24;
+const RECONCILE_DONE_SQ = 0.05 * 0.05;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 // One geometry/material shared by every remote capsule to keep RAM and draw
@@ -231,6 +237,7 @@ const deathOverlay = document.querySelector<HTMLDivElement>("#death-overlay");
 const matchTimer = document.querySelector<HTMLDivElement>("#match-timer");
 const scoreboardRows =
   document.querySelector<HTMLDivElement>("#scoreboard-rows");
+const pingLabel = document.querySelector<HTMLDivElement>("#ping");
 
 let localHealth = MAX_HEALTH;
 let localDead = false;
@@ -238,6 +245,10 @@ let hitMarkerTimeout = 0;
 let lastTimerText = "";
 let lastTimerLow = false;
 let scoreboardSignature = "";
+const reconcileTarget = new THREE.Vector3();
+let reconciling = false;
+let reconcileRate = RECONCILE_RATE;
+let pingRequest = 0;
 
 function setLocalHealth(health: number): void {
   const clamped = Math.max(0, Math.min(MAX_HEALTH, Math.round(health)));
@@ -572,6 +583,37 @@ function setConnectionStatus(text: string): void {
   }
 }
 
+function setPingLabel(text: string): void {
+  if (pingLabel) {
+    pingLabel.textContent = text;
+  }
+}
+
+function measurePing(): void {
+  if (!socket.connected) {
+    return;
+  }
+
+  const request = ++pingRequest;
+  const startedAt = performance.now();
+  const timeout = window.setTimeout(() => {
+    if (request === pingRequest) {
+      setPingLabel("PING --");
+    }
+  }, 3000);
+
+  socket.emit("client_ping", () => {
+    if (request !== pingRequest) {
+      return;
+    }
+    window.clearTimeout(timeout);
+    const rtt = Math.round(performance.now() - startedAt);
+    setPingLabel(`PING ${rtt}ms`);
+  });
+}
+
+window.setInterval(measurePing, 2000);
+
 function spawnRemotePlayer(state: PlayerState): RemotePlayer {
   const existing = remotePlayers.get(state.id);
   if (existing) {
@@ -656,6 +698,10 @@ socket.on("connect", () => {
 
   // A new socket means the server created a fresh, full-health player.
   localDead = false;
+  reconciling = false;
+  pingRequest += 1;
+  setPingLabel("PING --");
+  measurePing();
   deathOverlay?.classList.remove("visible");
   gun.object.visible = true;
   setLocalHealth(MAX_HEALTH);
@@ -665,6 +711,9 @@ socket.on("disconnect", () => {
   setConnectionStatus("OFFLINE");
   clearRemotePlayers();
   receivedInitialState = false;
+  reconciling = false;
+  pingRequest += 1;
+  setPingLabel("PING --");
 
   lastTimerText = "--:--";
   lastTimerLow = false;
@@ -678,6 +727,8 @@ socket.on("disconnect", () => {
 
 socket.on("connect_error", () => {
   setConnectionStatus("SERVER OFFLINE");
+  pingRequest += 1;
+  setPingLabel("PING --");
 });
 
 socket.on("game_state", ({ players, matchTime }) => {
@@ -688,21 +739,29 @@ socket.on("game_state", ({ players, matchTime }) => {
       // The server assigns the spawn point, so adopt it once on join/rejoin.
       if (!receivedInitialState) {
         player.reset(state.position);
+        reconciling = false;
       } else if (!localDead) {
-        /*
-         * Reconciliation: the client already simulated this input locally, so
-         * the server position normally lags slightly. Only snap when the gap is
-         * large enough to be a real desync (or a hacked client position).
-         */
         const dx = state.position.x - player.position.x;
         const dy = state.position.y - player.position.y;
         const dz = state.position.z - player.position.z;
-        if (dx * dx + dy * dy + dz * dz > RECONCILE_DISTANCE_SQ) {
-          player.position.set(
+        const distanceSq = dx * dx + dy * dy + dz * dz;
+
+        if (distanceSq > HARD_SNAP_DISTANCE_SQ) {
+          player.snapTo(state.position);
+          reconciling = false;
+        } else if (distanceSq > RECONCILE_DEADZONE_SQ) {
+          reconcileTarget.set(
             state.position.x,
             state.position.y,
             state.position.z,
           );
+          reconcileRate =
+            distanceSq > RECONCILE_FAST_DISTANCE_SQ
+              ? RECONCILE_FAST_RATE
+              : RECONCILE_RATE;
+          reconciling = true;
+        } else {
+          reconciling = false;
         }
       }
 
@@ -778,6 +837,7 @@ socket.on("player_died", ({ playerId }) => {
 
   if (playerId === socket.id) {
     localDead = true;
+    reconciling = false;
     setLocalHealth(0);
     player.velocity.set(0, 0, 0);
     input.clear();
@@ -795,6 +855,7 @@ socket.on("player_died", ({ playerId }) => {
 socket.on("player_respawned", (state) => {
   if (state.id === socket.id) {
     localDead = false;
+    reconciling = false;
     player.reset(state.position);
     setLocalHealth(state.health);
     deathOverlay?.classList.remove("visible");
@@ -877,11 +938,23 @@ function sendPlayerInput(now: number): void {
 }
 
 renderer.setAnimationLoop(() => {
-  const delta = clock.getDelta();
+  const delta = Math.min(clock.getDelta(), MAX_FRAME_DELTA);
 
   camera.getWorldDirection(cameraDirection);
   if (!localDead) {
     player.update(delta, input, cameraDirection);
+
+    if (reconciling) {
+      const blend = 1 - Math.exp(-reconcileRate * delta);
+      player.smoothTo(reconcileTarget, blend);
+      if (
+        player.position.distanceToSquared(reconcileTarget) <
+        RECONCILE_DONE_SQ
+      ) {
+        player.smoothTo(reconcileTarget, 1);
+        reconciling = false;
+      }
+    }
   }
 
   // Lock the camera to the player's eye position. Look rotation is untouched.
