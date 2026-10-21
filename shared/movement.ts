@@ -8,10 +8,11 @@ import {
   MAX_FALL_SPEED,
   MAX_MOVE_SPEED,
   MAX_SIMULATION_STEPS,
+  PLAYER_HEIGHT,
   PLAYER_RADIUS,
   SIMULATION_STEP,
 } from "./constants";
-import { ARENA_COVER } from "./map";
+import { CITY_MAP } from "./map";
 import type { MovementInput, MovementState } from "./types";
 
 /**
@@ -138,43 +139,129 @@ function stepMovement(
   state.position.y += state.velocity.y * dt - 0.5 * GRAVITY * dt * dt;
   state.position.z += state.velocity.z * dt;
 
-  resolveCoverCollision(state);
+  state.grounded = false;
+  resolveMapCollision(state);
 
-  // Simple floor collision; the arena is flat.
   if (state.position.y <= 0) {
     state.position.y = 0;
     if (state.velocity.y < 0) {
       state.velocity.y = 0;
     }
-    state.grounded = true;
-  } else {
-    state.grounded = false;
+  }
+
+  state.grounded = state.position.y <= 0.001 || isStandingOnMap(state);
+}
+
+function resolveMapCollision(state: MovementState): void {
+  for (let pass = 0; pass < 2; pass += 1) {
+    let collided = false;
+
+    for (const box of CITY_MAP) {
+      const playerMinX = state.position.x - PLAYER_RADIUS;
+      const playerMaxX = state.position.x + PLAYER_RADIUS;
+      const playerMinY = state.position.y;
+      const playerMaxY = state.position.y + PLAYER_HEIGHT;
+      const playerMinZ = state.position.z - PLAYER_RADIUS;
+      const playerMaxZ = state.position.z + PLAYER_RADIUS;
+
+      const boxMinX = box.x - box.width / 2;
+      const boxMaxX = box.x + box.width / 2;
+      const boxMinY = box.y;
+      const boxMaxY = box.y + box.height;
+      const boxMinZ = box.z - box.depth / 2;
+      const boxMaxZ = box.z + box.depth / 2;
+
+      const overlapX =
+        Math.min(playerMaxX, boxMaxX) - Math.max(playerMinX, boxMinX);
+      if (overlapX <= 0) {
+        continue;
+      }
+
+      const overlapY =
+        Math.min(playerMaxY, boxMaxY) - Math.max(playerMinY, boxMinY);
+      if (overlapY <= 0) {
+        continue;
+      }
+
+      const overlapZ =
+        Math.min(playerMaxZ, boxMaxZ) - Math.max(playerMinZ, boxMinZ);
+      if (overlapZ <= 0) {
+        continue;
+      }
+
+      collided = true;
+
+      if (overlapX <= overlapY && overlapX <= overlapZ) {
+        state.position.x =
+          box.x +
+          (state.position.x >= box.x ? 1 : -1) *
+            (box.width / 2 + PLAYER_RADIUS);
+        state.velocity.x = 0;
+        continue;
+      }
+
+      if (overlapZ <= overlapX && overlapZ <= overlapY) {
+        state.position.z =
+          box.z +
+          (state.position.z >= box.z ? 1 : -1) *
+            (box.depth / 2 + PLAYER_RADIUS);
+        state.velocity.z = 0;
+        continue;
+      }
+
+      const playerCenterY = state.position.y + PLAYER_HEIGHT / 2;
+      const boxCenterY = box.y + box.height / 2;
+
+      if (playerCenterY >= boxCenterY) {
+        state.position.y = box.y + box.height;
+        if (state.velocity.y < 0) {
+          state.velocity.y = 0;
+        }
+      } else if (box.y > 0.001) {
+        state.position.y = box.y - PLAYER_HEIGHT;
+        if (state.velocity.y > 0) {
+          state.velocity.y = 0;
+        }
+      } else if (overlapX < overlapZ) {
+        state.position.x =
+          box.x +
+          (state.position.x >= box.x ? 1 : -1) *
+            (box.width / 2 + PLAYER_RADIUS);
+        state.velocity.x = 0;
+      } else {
+        state.position.z =
+          box.z +
+          (state.position.z >= box.z ? 1 : -1) *
+            (box.depth / 2 + PLAYER_RADIUS);
+        state.velocity.z = 0;
+      }
+    }
+
+    if (!collided) {
+      break;
+    }
   }
 }
 
-function resolveCoverCollision(state: MovementState): void {
-  for (const box of ARENA_COVER) {
-    if (state.position.y >= box.height) {
+function isStandingOnMap(state: MovementState): boolean {
+  const feetY = state.position.y;
+  const epsilon = 0.04;
+
+  for (const box of CITY_MAP) {
+    const topY = box.y + box.height;
+    if (Math.abs(feetY - topY) > epsilon) {
       continue;
     }
 
-    const halfX = box.width / 2 + PLAYER_RADIUS;
-    const halfZ = box.depth / 2 + PLAYER_RADIUS;
-    const dx = state.position.x - box.x;
-    const dz = state.position.z - box.z;
-    const penetrationX = halfX - Math.abs(dx);
-    const penetrationZ = halfZ - Math.abs(dz);
-
-    if (penetrationX <= 0 || penetrationZ <= 0) {
-      continue;
-    }
-
-    if (penetrationX < penetrationZ) {
-      state.position.x = box.x + (dx >= 0 ? halfX : -halfX);
-      state.velocity.x = 0;
-    } else {
-      state.position.z = box.z + (dz >= 0 ? halfZ : -halfZ);
-      state.velocity.z = 0;
+    if (
+      Math.abs(state.position.x - box.x) <
+        box.width / 2 + PLAYER_RADIUS &&
+      Math.abs(state.position.z - box.z) <
+        box.depth / 2 + PLAYER_RADIUS
+    ) {
+      return true;
     }
   }
+
+  return false;
 }

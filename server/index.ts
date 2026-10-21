@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,8 +17,8 @@ import {
   SERVER_PORT,
 } from "../shared/constants";
 import {
-  ARENA_COVER,
-  circleHitsCover,
+  CITY_MAP,
+  circleHitsMap,
   rayBoxDistance,
 } from "../shared/map";
 import { simulateMovement } from "../shared/movement";
@@ -30,6 +31,11 @@ import type {
   ServerToClientEvents,
   Vec3,
 } from "../shared/types";
+
+const envFile = resolve(process.cwd(), ".env");
+if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
+  process.loadEnvFile(envFile);
+}
 
 /**
  * Server-only fields. They are deliberately excluded from game_state via
@@ -47,19 +53,71 @@ interface ServerPlayer extends PlayerState {
 const app = express();
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const clientDist = resolve(currentDir, "../client");
+const clientIndex = resolve(clientDist, "index.html");
+const serveClient =
+  process.env.SERVE_CLIENT === "true" && existsSync(clientIndex);
 
-const configuredOrigins = (process.env.CORS_ORIGIN ?? "*")
+const allowedOrigins = (process.env.CORS_ORIGIN ?? "*")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
-const corsOrigin =
-  configuredOrigins.length > 1 ? configuredOrigins : (configuredOrigins[0] ?? "*");
+const allowAllOrigins = allowedOrigins.includes("*");
+if (process.env.NODE_ENV === "production" && allowAllOrigins) {
+  console.warn(
+    "CORS_ORIGIN is not restricted; set it to your Vercel URL before going live",
+  );
+}
+
+const originPattern = process.env.CORS_ORIGIN_REGEX?.trim();
+let originRegex: RegExp | null = null;
+if (originPattern) {
+  try {
+    originRegex = new RegExp(originPattern);
+  } catch (error) {
+    console.error("Invalid CORS_ORIGIN_REGEX:", error);
+  }
+}
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin || allowAllOrigins) {
+    return true;
+  }
+
+  return allowedOrigins.includes(origin) || originRegex?.test(origin) === true;
+}
+
+const corsOrigin = (
+  origin: string | undefined,
+  callback: (error: Error | null, allow?: boolean) => void,
+): void => {
+  if (isOriginAllowed(origin)) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new Error(`Origin not allowed: ${origin}`));
+};
 
 app.disable("x-powered-by");
-app.use(express.static(clientDist));
-app.get("/{*splat}", (_request, response) => {
-  response.sendFile(resolve(clientDist, "index.html"));
+
+app.get("/health", (_request, response) => {
+  response.status(200).json({ status: "ok", uptime: process.uptime() });
 });
+
+if (serveClient) {
+  app.use(express.static(clientDist));
+  app.get("/{*splat}", (_request, response) => {
+    response.sendFile(clientIndex);
+  });
+} else {
+  app.get("/", (_request, response) => {
+    response.status(200).json({ service: "neon-arena-server", status: "ok" });
+  });
+}
+
+if (process.env.SERVE_CLIENT === "true" && !serveClient) {
+  console.warn("SERVE_CLIENT=true but dist/client/index.html was not found");
+}
 
 const httpServer = createServer(app);
 
@@ -67,6 +125,9 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
     origin: corsOrigin,
     methods: ["GET", "POST"],
+  },
+  allowRequest: (request, callback) => {
+    callback(null, isOriginAllowed(request.headers.origin));
   },
 });
 
@@ -96,12 +157,12 @@ function createSpawn(): Vec3 {
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const x = (Math.random() * 2 - 1) * 8;
     const z = (Math.random() * 2 - 1) * 8;
-    if (!circleHitsCover(x, z, PLAYER_RADIUS + 0.5)) {
+    if (!circleHitsMap(x, z, PLAYER_RADIUS + 0.5)) {
       return { x, y: 0, z };
     }
   }
 
-  return { x: -20, y: 0, z: -20 };
+  return { x: 0, y: 0, z: 0 };
 }
 
 function createEmptyInput(): MovementInput {
@@ -400,7 +461,7 @@ io.on("connection", (socket) => {
     let nearestDistance = Infinity;
     let nearestCover = Infinity;
 
-    for (const box of ARENA_COVER) {
+    for (const box of CITY_MAP) {
       const distance = rayBoxDistance(origin, normalizedDirection, box);
       if (distance !== null && distance < nearestCover) {
         nearestCover = distance;
@@ -551,5 +612,7 @@ const port =
   Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : SERVER_PORT;
 
 httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`Neon Arena server listening on http://localhost:${port}`);
+  console.log(
+    `Neon Arena server listening on http://localhost:${port} (${serveClient ? "client + api" : "api only"})`,
+  );
 });

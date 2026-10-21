@@ -8,7 +8,7 @@ import {
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
 } from "../shared/constants";
-import { ARENA_COVER } from "../shared/map";
+import { CITY_MAP } from "../shared/map";
 import type {
   ClientToServerEvents,
   PlayerState,
@@ -79,7 +79,10 @@ camera.add(gun.object);
  * GridHelper is a single line-segment object, so it costs one draw call and no
  * textures. 50x50 divisions gives 1m cells across a 50m arena.
  */
-const grid = new THREE.GridHelper(50, 50, 0x00ffff, 0x00ffff);
+const grid = new THREE.GridHelper(50, 50, 0x005566, 0x003344);
+const gridMaterial = grid.material as THREE.LineBasicMaterial;
+gridMaterial.transparent = true;
+gridMaterial.opacity = 0.45;
 scene.add(grid);
 
 /*
@@ -105,34 +108,121 @@ floorMesh.rotation.x = -Math.PI / 2;
 floorMesh.position.y = -0.01;
 scene.add(floorMesh);
 
-const staticMeshes: THREE.Object3D[] = [floorMesh];
-const coverGeometry = new THREE.BoxGeometry(1, 1, 1);
-const coverEdgeGeometry = new THREE.EdgesGeometry(coverGeometry);
-const coverMaterial = new THREE.MeshStandardMaterial({
-  color: 0x0a1020,
-  emissive: 0x003344,
-  emissiveIntensity: 0.9,
-  roughness: 0.55,
-  metalness: 0.2,
+const cityGeometry = new THREE.BoxGeometry(1, 1, 1);
+const cityMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.72,
+  metalness: 0.12,
   flatShading: true,
 });
-const coverEdgeMaterial = new THREE.LineBasicMaterial({
-  color: 0x00ffff,
-  transparent: true,
-  opacity: 0.55,
+const cityMesh = new THREE.InstancedMesh(
+  cityGeometry,
+  cityMaterial,
+  CITY_MAP.length,
+);
+cityMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+cityMesh.matrixAutoUpdate = false;
+cityMesh.updateMatrix();
+
+const cityInstanceMatrix = new THREE.Matrix4();
+const cityInstancePosition = new THREE.Vector3();
+const cityInstanceScale = new THREE.Vector3();
+const cityInstanceQuaternion = new THREE.Quaternion();
+const cityInstanceColor = new THREE.Color();
+
+CITY_MAP.forEach((box, index) => {
+  cityInstancePosition.set(box.x, box.y + box.height / 2, box.z);
+  cityInstanceScale.set(box.width, box.height, box.depth);
+  cityInstanceMatrix.compose(
+    cityInstancePosition,
+    cityInstanceQuaternion,
+    cityInstanceScale,
+  );
+  cityMesh.setMatrixAt(index, cityInstanceMatrix);
+  cityMesh.setColorAt(index, cityInstanceColor.setHex(box.color));
 });
 
-for (const box of ARENA_COVER) {
-  const mesh = new THREE.Mesh(coverGeometry, coverMaterial);
-  mesh.position.set(box.x, box.height / 2, box.z);
-  mesh.scale.set(box.width, box.height, box.depth);
-
-  const edges = new THREE.LineSegments(coverEdgeGeometry, coverEdgeMaterial);
-  mesh.add(edges);
-
-  scene.add(mesh);
-  staticMeshes.push(mesh);
+cityMesh.instanceMatrix.needsUpdate = true;
+if (cityMesh.instanceColor) {
+  cityMesh.instanceColor.needsUpdate = true;
 }
+cityMesh.computeBoundingSphere();
+scene.add(cityMesh);
+
+const EDGE_INDICES = [
+  0, 1, 1, 2, 2, 3, 3, 0,
+  4, 5, 5, 6, 6, 7, 7, 4,
+  0, 4, 1, 5, 2, 6, 3, 7,
+] as const;
+const edgeCorners = new Float32Array(8 * 3);
+const edgePositions = new Float32Array(CITY_MAP.length * 12 * 2 * 3);
+let edgeOffset = 0;
+
+for (const box of CITY_MAP) {
+  const minX = box.x - box.width / 2;
+  const maxX = box.x + box.width / 2;
+  const minY = box.y;
+  const maxY = box.y + box.height;
+  const minZ = box.z - box.depth / 2;
+  const maxZ = box.z + box.depth / 2;
+
+  edgeCorners[0] = minX;
+  edgeCorners[1] = minY;
+  edgeCorners[2] = minZ;
+  edgeCorners[3] = maxX;
+  edgeCorners[4] = minY;
+  edgeCorners[5] = minZ;
+  edgeCorners[6] = maxX;
+  edgeCorners[7] = minY;
+  edgeCorners[8] = maxZ;
+  edgeCorners[9] = minX;
+  edgeCorners[10] = minY;
+  edgeCorners[11] = maxZ;
+  edgeCorners[12] = minX;
+  edgeCorners[13] = maxY;
+  edgeCorners[14] = minZ;
+  edgeCorners[15] = maxX;
+  edgeCorners[16] = maxY;
+  edgeCorners[17] = minZ;
+  edgeCorners[18] = maxX;
+  edgeCorners[19] = maxY;
+  edgeCorners[20] = maxZ;
+  edgeCorners[21] = minX;
+  edgeCorners[22] = maxY;
+  edgeCorners[23] = maxZ;
+
+  for (let i = 0; i < EDGE_INDICES.length; i += 2) {
+    const from = EDGE_INDICES[i] * 3;
+    const to = EDGE_INDICES[i + 1] * 3;
+
+    edgePositions[edgeOffset] = edgeCorners[from];
+    edgePositions[edgeOffset + 1] = edgeCorners[from + 1];
+    edgePositions[edgeOffset + 2] = edgeCorners[from + 2];
+    edgePositions[edgeOffset + 3] = edgeCorners[to];
+    edgePositions[edgeOffset + 4] = edgeCorners[to + 1];
+    edgePositions[edgeOffset + 5] = edgeCorners[to + 2];
+    edgeOffset += 6;
+  }
+}
+
+const cityEdgeGeometry = new THREE.BufferGeometry();
+cityEdgeGeometry.setAttribute(
+  "position",
+  new THREE.BufferAttribute(edgePositions, 3),
+);
+const cityEdgeMaterial = new THREE.LineBasicMaterial({
+  color: 0x00ffff,
+  transparent: true,
+  opacity: 0.42,
+  depthWrite: false,
+});
+const cityEdges = new THREE.LineSegments(
+  cityEdgeGeometry,
+  cityEdgeMaterial,
+);
+scene.add(cityEdges);
+
+const staticMeshes: THREE.Object3D[] = [floorMesh, cityMesh];
 
 const audio = new GameAudio();
 
@@ -387,6 +477,31 @@ const remoteShotOrigin = new THREE.Vector3();
 const remoteShotDirection = new THREE.Vector3();
 const remoteTracerEnd = new THREE.Vector3();
 const impactNormal = new THREE.Vector3();
+const impactInstanceMatrix = new THREE.Matrix4();
+const impactNormalMatrix = new THREE.Matrix3();
+
+function setImpactNormal(
+  hit: THREE.Intersection,
+  target: THREE.Vector3,
+): void {
+  if (!hit.face) {
+    target.copy(cameraDirection).negate();
+    return;
+  }
+
+  target.copy(hit.face.normal);
+  if (
+    hit.object instanceof THREE.InstancedMesh &&
+    hit.instanceId !== undefined
+  ) {
+    hit.object.getMatrixAt(hit.instanceId, impactInstanceMatrix);
+    impactNormalMatrix.getNormalMatrix(impactInstanceMatrix);
+    target.applyMatrix3(impactNormalMatrix).normalize();
+    return;
+  }
+
+  target.transformDirection(hit.object.matrixWorld);
+}
 
 const tracerMaterial = new THREE.LineBasicMaterial({
   color: 0x66ffff,
@@ -996,15 +1111,7 @@ renderer.setAnimationLoop(() => {
     if (hits.length > 0) {
       const impact = hits[0];
       tracerEnd.copy(impact.point);
-
-      if (impact.face) {
-        impactNormal
-          .copy(impact.face.normal)
-          .transformDirection(impact.object.matrixWorld);
-      } else {
-        impactNormal.copy(cameraDirection).negate();
-      }
-
+      setImpactNormal(impact, impactNormal);
       spawnImpactSparks(impact.point, impactNormal);
     } else {
       tracerEnd

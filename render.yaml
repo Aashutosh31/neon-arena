@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: neon-arena-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build:api
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_CLIENT
+        value: "false"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: CORS_ORIGIN_REGEX
+        sync: false
+      - key: MATCH_DURATION_SECONDS
+        value: "120"
