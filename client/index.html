@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Neon Arena</title>
+    <style>
+      /* Minimal reset: the game fills the viewport and never scrolls. */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #000000;
+      }
+
+      /* The canvas is the lowest layer; the renderer sizes it to the window. */
+      #game-canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /*
+       * HUD overlay sits above the canvas and ignores pointer events so that
+       * future mouse-look / shooting input reaches the canvas underneath.
+       */
+      #hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        font-family: monospace;
+        color: #00ffff;
+        user-select: none;
+      }
+
+      /* Crosshair built from two cheap CSS lines (no images, no extra RAM). */
+      #crosshair {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 16px;
+        height: 16px;
+        transform: translate(-50%, -50%);
+      }
+
+      #crosshair::before,
+      #crosshair::after {
+        content: "";
+        position: absolute;
+        background: #00ffff;
+        box-shadow: 0 0 4px #00ffff;
+      }
+
+      #crosshair::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        transform: translateY(-50%);
+      }
+
+      #crosshair::after {
+        top: 0;
+        left: 50%;
+        width: 2px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+
+      /* Aiming at a remote player: swap the crosshair to a threat color. */
+      #crosshair.hit::before,
+      #crosshair.hit::after {
+        background: #ff0044;
+        box-shadow: 0 0 6px #ff0044;
+      }
+
+      /* Connection indicator lives in the top-left corner for now. */
+      #connection-status {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        font-size: 12px;
+        letter-spacing: 1px;
+        opacity: 0.75;
+      }
+
+      #match-timer {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 30px;
+        letter-spacing: 5px;
+        text-shadow: 0 0 10px #00ffff;
+      }
+
+      #match-timer.low {
+        color: #ff0044;
+        text-shadow: 0 0 12px #ff0044;
+      }
+
+      #scoreboard {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        min-width: 190px;
+        padding: 8px 10px;
+        border: 1px solid rgba(0, 255, 255, 0.45);
+        background: rgba(0, 0, 0, 0.55);
+        font-size: 12px;
+        letter-spacing: 1px;
+      }
+
+      .scoreboard-head,
+      .score-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .scoreboard-head {
+        margin-bottom: 5px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+        font-size: 10px;
+        letter-spacing: 2px;
+        opacity: 0.55;
+      }
+
+      .score-row {
+        line-height: 1.55;
+      }
+
+      .score-name {
+        max-width: 110px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .score-name.local {
+        color: #ffff66;
+        text-shadow: 0 0 6px #ffff66;
+      }
+
+      .score-kd {
+        color: #ffffff;
+        opacity: 0.85;
+        white-space: nowrap;
+      }
+
+      /* Click-to-lock prompt; hidden by main.ts while pointer lock is active. */
+      #lock-hint {
+        position: absolute;
+        bottom: 32px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 16px;
+        border: 1px solid #00ffff;
+        font-size: 13px;
+        letter-spacing: 2px;
+        text-shadow: 0 0 8px #00ffff;
+        background: rgba(0, 0, 0, 0.5);
+      }
+
+      /* Health bar: a single div width change, no images or canvas. */
+      #health-label {
+        position: absolute;
+        left: 20px;
+        bottom: 40px;
+        font-size: 12px;
+        letter-spacing: 2px;
+        text-shadow: 0 0 6px #00ffff;
+      }
+
+      #health-bar {
+        position: absolute;
+        left: 20px;
+        bottom: 20px;
+        width: 220px;
+        height: 12px;
+        border: 1px solid rgba(0, 255, 255, 0.6);
+        background: rgba(0, 0, 0, 0.55);
+      }
+
+      #health-fill {
+        width: 100%;
+        height: 100%;
+        background: #00ffff;
+        box-shadow: 0 0 8px #00ffff;
+        transition: width 80ms linear;
+      }
+
+      #health-bar.low #health-fill {
+        background: #ff0044;
+        box-shadow: 0 0 8px #ff0044;
+      }
+
+      /* Hit marker: a red X flashed for 100ms when the server confirms a hit. */
+      #hit-marker {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 20px;
+        height: 20px;
+        transform: translate(-50%, -50%) rotate(45deg);
+        opacity: 0;
+        transition: opacity 60ms linear;
+      }
+
+      #hit-marker::before,
+      #hit-marker::after {
+        content: "";
+        position: absolute;
+        background: #ff0044;
+        box-shadow: 0 0 6px #ff0044;
+      }
+
+      #hit-marker::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        transform: translateY(-50%);
+      }
+
+      #hit-marker::after {
+        top: 0;
+        left: 50%;
+        width: 2px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+
+      /* Death screen; .visible is toggled by main.ts. */
+      #death-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.72);
+        text-align: center;
+      }
+
+      #death-overlay.visible {
+        display: flex;
+      }
+
+      .death-title {
+        color: #ff0044;
+        font-size: 42px;
+        letter-spacing: 8px;
+        text-shadow: 0 0 18px #ff0044;
+      }
+
+      .death-subtitle {
+        margin-top: 12px;
+        font-size: 14px;
+        letter-spacing: 3px;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud">
+      <div id="crosshair"></div>
+      <div id="hit-marker"></div>
+      <div id="connection-status">OFFLINE</div>
+      <div id="match-timer">2:00</div>
+      <div id="scoreboard">
+        <div class="scoreboard-head">
+          <span>PLAYER</span>
+          <span>K / D</span>
+        </div>
+        <div id="scoreboard-rows"></div>
+      </div>
+      <div id="health-label">HP 100</div>
+      <div id="health-bar">
+        <div id="health-fill"></div>
+      </div>
+      <div id="lock-hint">CLICK TO PLAY</div>
+      <div id="death-overlay">
+        <div class="death-title">YOU DIED</div>
+        <div class="death-subtitle">RESPAWNING...</div>
+      </div>
+    </div>
+
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>
