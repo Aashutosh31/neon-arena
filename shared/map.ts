@@ -4,7 +4,7 @@ import {
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
 } from "./constants";
-import type { Vec3 } from "./types";
+import type { PickupKind, Vec3 } from "./types";
 
 export interface MapObject {
   id: string;
@@ -50,6 +50,13 @@ export interface StreetLightSpec {
   z: number;
   height: number;
   color: number;
+}
+
+export interface PickupSpawn {
+  id: string;
+  kind: PickupKind;
+  x: number;
+  z: number;
 }
 
 export const FLOOR_SIZE = ARENA_HALF_EXTENT * 2 + 2;
@@ -646,6 +653,23 @@ addFountain();
 addPlazaCover();
 addStreetLights();
 
+export const MAP_PICKUPS: readonly PickupSpawn[] = [
+  { id: "medkit-plaza-north", kind: "medkit", x: 0, z: 10 },
+  { id: "medkit-plaza-south", kind: "medkit", x: 0, z: -10 },
+  { id: "medkit-plaza-east", kind: "medkit", x: 10, z: 0 },
+  { id: "medkit-plaza-west", kind: "medkit", x: -10, z: 0 },
+  { id: "medkit-avenue-north", kind: "medkit", x: 0, z: 36 },
+  { id: "medkit-avenue-south", kind: "medkit", x: 0, z: -36 },
+  { id: "medkit-street-ne", kind: "medkit", x: 23.4, z: 23.4 },
+  { id: "medkit-street-sw", kind: "medkit", x: -23.4, z: -23.4 },
+  { id: "armor-street-se", kind: "armor", x: 23.4, z: -23.4 },
+  { id: "armor-street-nw", kind: "armor", x: -23.4, z: 23.4 },
+  { id: "armor-street-e1", kind: "armor", x: 23.4, z: -30 },
+  { id: "armor-street-w1", kind: "armor", x: -23.4, z: 30 },
+  { id: "armor-street-s1", kind: "armor", x: 30, z: -23.4 },
+  { id: "armor-street-n1", kind: "armor", x: -30, z: 23.4 },
+];
+
 export const MAP_OBJECTS: readonly MapObject[] = objects;
 export const MAP_ROOFS: readonly RoofSpec[] = roofs;
 export const MAP_WINDOWS: readonly PanelSpec[] = panels;
@@ -682,6 +706,22 @@ export function aabbHitsMap(
   }
 
   return false;
+}
+
+export function sphereHitsMap(
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+): boolean {
+  return aabbHitsMap(
+    x - radius,
+    y - radius,
+    z - radius,
+    x + radius,
+    y + radius,
+    z + radius,
+  );
 }
 
 /** Test the player's full AABB at a feet position against the map. */

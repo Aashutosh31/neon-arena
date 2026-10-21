@@ -7,6 +7,7 @@ export interface Vec3 {
 
 export type GameMode = "tdm" | "ffa";
 export type TeamId = "alpha" | "bravo" | "ffa";
+export type PickupKind = "medkit" | "armor";
 export type WeaponId =
   | "rifle"
   | "smg"
@@ -39,6 +40,9 @@ export interface PlayerState {
   /** x = pitch, y = yaw. */
   rotation: Vec3;
   health: number;
+  armor: number;
+  medkits: number;
+  grenades: number;
   kills: number;
   deaths: number;
   weapon: WeaponId;
@@ -85,9 +89,24 @@ export interface PlayerInputPayload extends Omit<MovementInput, "ads"> {
   ads: boolean;
 }
 
+export interface GrenadeState {
+  id: string;
+  position: Vec3;
+  fuseRemaining: number;
+}
+
+export interface PickupState {
+  id: string;
+  kind: PickupKind;
+  position: Vec3;
+  available: boolean;
+}
+
 /** Full snapshot broadcast every server tick (20hz). */
 export interface GameStatePayload {
   players: PlayerState[];
+  grenades: GrenadeState[];
+  pickups: PickupState[];
   matchTime: number;
   mode: GameMode;
   scores: Record<"alpha" | "bravo", number>;
@@ -100,6 +119,28 @@ export interface GameStatePayload {
 export interface PlayerShootPayload {
   direction: Vec3;
   weapon: WeaponId;
+}
+
+export interface PlayerThrowGrenadePayload {
+  direction: Vec3;
+}
+
+export interface GrenadeThrownPayload {
+  id: string;
+  ownerId: string;
+  position: Vec3;
+  velocity: Vec3;
+}
+
+export interface GrenadeExplodedPayload {
+  id: string;
+  position: Vec3;
+  radius: number;
+}
+
+export interface PickupCollectedPayload {
+  playerId: string;
+  kind: PickupKind;
 }
 
 /** Server -> clients: shot plus who fired it, for remote tracers. */
@@ -154,7 +195,10 @@ export interface ServerToClientEvents {
   player_shoot: (payload: ServerShootPayload) => void;
   player_hit: (payload: PlayerHitPayload) => void;
   player_died: (payload: PlayerDiedPayload) => void;
-  player_respawned: (player: PlayerRespawnedPayload) => void;
+  player_respawned: (payload: PlayerRespawnedPayload) => void;
+  grenade_thrown: (payload: GrenadeThrownPayload) => void;
+  grenade_exploded: (payload: GrenadeExplodedPayload) => void;
+  pickup_collected: (payload: PickupCollectedPayload) => void;
   queue_status: (payload: QueueStatusPayload) => void;
   match_over: (payload: MatchOverPayload) => void;
 }
@@ -164,6 +208,8 @@ export interface ClientToServerEvents {
   queue_leave: () => void;
   player_input: (payload: PlayerInputPayload) => void;
   player_shoot: (payload: PlayerShootPayload) => void;
+  player_throw_grenade: (payload: PlayerThrowGrenadePayload) => void;
+  player_use_medkit: () => void;
   player_reload: () => void;
   player_switch_weapon: (weapon: WeaponId) => void;
   client_ping: (callback: () => void) => void;

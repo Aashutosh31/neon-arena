@@ -1,14 +1,31 @@
 import {
+  ARMOR_ABSORPTION,
+  ARMOR_PICKUP_AMOUNT,
   ARENA_HALF_EXTENT,
   ARENA_LIMIT,
   BOT_COUNT,
+  BOT_DAMAGE_MULTIPLIER,
   EYE_HEIGHT,
+  GRENADE_COOLDOWN_MS,
+  GRENADE_FUSE_MS,
+  GRENADE_MAX_DAMAGE,
+  GRENADE_RADIUS,
+  GRENADE_THROW_SPEED,
+  GRENADE_UP_SPEED,
   MATCH_DURATION_SECONDS,
   MATCH_RESTART_MS,
+  MAX_ARMOR,
   MAX_HEALTH,
   MAX_MATCH_PLAYERS,
+  MAX_MEDKITS,
   MAX_NAME_LENGTH,
+  MEDKIT_HEAL,
+  PICKUP_RADIUS,
+  PICKUP_RESPAWN_MS,
   RESPAWN_TIME,
+  SPAWN_ARMOR,
+  START_GRENADES,
+  START_MEDKITS,
 } from "./constants";
 import {
   castShot,
@@ -17,8 +34,10 @@ import {
 } from "./combat";
 import {
   MAP_OBJECTS,
+  MAP_PICKUPS,
   MAP_WAYPOINTS,
   playerHitsMap,
+  sphereHitsMap,
   type MapObject,
 } from "./map";
 import { simulateMovement } from "./movement";
@@ -26,7 +45,10 @@ import type {
   GameMode,
   GameRules,
   GameStatePayload,
+  GrenadeExplodedPayload,
+  GrenadeThrownPayload,
   MovementInput,
+  PickupKind,
   PlayerState,
   TeamId,
   Vec3,
@@ -83,6 +105,9 @@ interface SimPlayer {
   position: Vec3;
   rotation: Vec3;
   health: number;
+  armor: number;
+  medkits: number;
+  grenades: number;
   kills: number;
   deaths: number;
   weapon: WeaponId;
@@ -94,9 +119,25 @@ interface SimPlayer {
   lastInputSequence: number;
   lastInputAt: number;
   lastShotAt: number;
+  lastGrenadeAt: number;
   reloadEndsAt: number;
   deadUntil: number | null;
   bot: BotBrain;
+}
+
+interface SimGrenade {
+  id: string;
+  ownerId: string;
+  position: Vec3;
+  velocity: Vec3;
+  explodeAt: number;
+}
+
+interface SimPickup {
+  id: string;
+  kind: PickupKind;
+  position: Vec3;
+  availableAt: number;
 }
 
 export interface GameEvents {
@@ -120,6 +161,9 @@ export interface GameEvents {
     killerWeapon: WeaponId | null,
   ) => void;
   onRespawn?: (player: PlayerState) => void;
+  onGrenadeThrown?: (payload: GrenadeThrownPayload) => void;
+  onGrenadeExploded?: (payload: GrenadeExplodedPayload) => void;
+  onPickup?: (playerId: string, kind: PickupKind) => void;
   onMatchOver?: (
     winner: "alpha" | "bravo" | "draw",
     scores: Record<"alpha" | "bravo", number>,
@@ -154,6 +198,14 @@ const EMPTY_INPUT: MovementInput = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function applyDamage(target: SimPlayer, amount: number): number {
+  const absorbed = Math.min(target.armor, amount * ARMOR_ABSORPTION);
+  target.armor = Math.max(0, target.armor - absorbed);
+  const healthDamage = amount - absorbed;
+  target.health = Math.max(0, target.health - healthDamage);
+  return healthDamage;
 }
 
 function readLimit(
@@ -243,6 +295,9 @@ function emptyPlayer(
     position,
     rotation: { x: 0, y: yaw, z: 0 },
     health: MAX_HEALTH,
+    armor: SPAWN_ARMOR,
+    medkits: START_MEDKITS,
+    grenades: START_GRENADES,
     kills: 0,
     deaths: 0,
     weapon: "rifle",
@@ -254,6 +309,7 @@ function emptyPlayer(
     lastInputSequence: 0,
     lastInputAt: 0,
     lastShotAt: 0,
+    lastGrenadeAt: 0,
     reloadEndsAt: 0,
     deadUntil: null,
     bot: {
@@ -264,7 +320,7 @@ function emptyPlayer(
       lastX: position.x,
       lastZ: position.z,
       stuckSince: 0,
-      skill: 0.72 + Math.random() * 0.24,
+      skill: 0.6 + Math.random() * 0.26,
       reloadAt: 0,
       nextShotAt: 0,
       burstRemaining: 2,
@@ -278,6 +334,8 @@ export class GameSimulation {
   private readonly mapObjects: readonly MapObject[];
   private readonly events: GameEvents;
   private readonly players = new Map<string, SimPlayer>();
+  private readonly grenades: SimGrenade[] = [];
+  private readonly pickups = new Map<string, SimPickup>();
   private readonly scores: Record<"alpha" | "bravo", number> = {
     alpha: 0,
     bravo: 0,
@@ -288,6 +346,7 @@ export class GameSimulation {
   private matchOver = false;
   private winner: "alpha" | "bravo" | "draw" | null = null;
   private botCounter = 0;
+  private grenadeCounter = 0;
   private generation = 0;
 
   constructor(
@@ -300,6 +359,14 @@ export class GameSimulation {
     this.rules = sanitizeRules(rules);
     this.events = events;
     this.mapObjects = mapObjects;
+    for (const pickup of MAP_PICKUPS) {
+      this.pickups.set(pickup.id, {
+        id: pickup.id,
+        kind: pickup.kind,
+        position: { x: pickup.x, y: 0.45, z: pickup.z },
+        availableAt: 0,
+      });
+    }
   }
 
   get playerCount(): number {
@@ -345,6 +412,11 @@ export class GameSimulation {
 
   removePlayer(id: string): void {
     this.players.delete(id);
+    for (let i = this.grenades.length - 1; i >= 0; i -= 1) {
+      if (this.grenades[i].ownerId === id) {
+        this.grenades.splice(i, 1);
+      }
+    }
   }
 
   start(now = Date.now()): void {
@@ -417,6 +489,70 @@ export class GameSimulation {
     player.reloadEndsAt = now + spec.reloadTimeMs;
   }
 
+  useMedkit(id: string): void {
+    const player = this.players.get(id);
+    if (
+      !player ||
+      player.health <= 0 ||
+      player.health >= MAX_HEALTH ||
+      player.medkits <= 0 ||
+      this.matchOver
+    ) {
+      return;
+    }
+    player.medkits -= 1;
+    player.health = Math.min(MAX_HEALTH, player.health + MEDKIT_HEAL);
+  }
+
+  throwGrenade(
+    id: string,
+    direction: Vec3,
+    now = Date.now(),
+  ): void {
+    const player = this.players.get(id);
+    if (
+      !player ||
+      player.health <= 0 ||
+      player.grenades <= 0 ||
+      this.matchOver ||
+      now - player.lastGrenadeAt < GRENADE_COOLDOWN_MS
+    ) {
+      return;
+    }
+    const normalized = normalizeDirection(direction);
+    if (!normalized) {
+      return;
+    }
+    player.grenades -= 1;
+    player.lastGrenadeAt = now;
+    this.grenadeCounter += 1;
+
+    const origin = {
+      x: player.position.x + normalized.x * 0.4,
+      y: player.position.y + EYE_HEIGHT - 0.12,
+      z: player.position.z + normalized.z * 0.4,
+    };
+    const velocity = {
+      x: normalized.x * GRENADE_THROW_SPEED,
+      y: normalized.y * GRENADE_THROW_SPEED + GRENADE_UP_SPEED,
+      z: normalized.z * GRENADE_THROW_SPEED,
+    };
+    const grenade: SimGrenade = {
+      id: `grenade-${this.grenadeCounter}`,
+      ownerId: player.id,
+      position: origin,
+      velocity,
+      explodeAt: now + GRENADE_FUSE_MS,
+    };
+    this.grenades.push(grenade);
+    this.events.onGrenadeThrown?.({
+      id: grenade.id,
+      ownerId: player.id,
+      position: { ...origin },
+      velocity: { ...velocity },
+    });
+  }
+
   shoot(
     id: string,
     direction: Vec3,
@@ -487,7 +623,8 @@ export class GameSimulation {
         spec.damage *
         falloff *
         headshotMultiplier *
-        this.rules.damageMultiplier;
+        this.rules.damageMultiplier *
+        (player.isBot ? BOT_DAMAGE_MULTIPLIER : 1);
       const existing = damageByTarget.get(hit.playerId);
       if (existing) {
         existing.damage += damage;
@@ -505,8 +642,9 @@ export class GameSimulation {
       if (!target || target.health <= 0) {
         continue;
       }
-      const roundedDamage = Math.round(result.damage);
-      target.health = Math.max(0, target.health - roundedDamage);
+      const roundedDamage = Math.round(
+        applyDamage(target, result.damage),
+      );
       this.events.onHit?.(
         player.id,
         target.id,
@@ -515,7 +653,7 @@ export class GameSimulation {
       );
 
       if (target.health <= 0) {
-        this.killPlayer(player, target, result.headshot, now);
+        this.killPlayer(player, target, result.headshot, now, player.weapon);
       }
     }
   }
@@ -568,6 +706,9 @@ export class GameSimulation {
       player.position.x = clamp(player.position.x, -ARENA_LIMIT, ARENA_LIMIT);
       player.position.z = clamp(player.position.z, -ARENA_LIMIT, ARENA_LIMIT);
     }
+
+    this.updateGrenades(now, delta);
+    this.updatePickups(now);
   }
 
   getState(now = Date.now()): GameStatePayload {
@@ -575,6 +716,17 @@ export class GameSimulation {
       players: Array.from(this.players.values(), (player) =>
         this.toState(player, now),
       ),
+      grenades: this.grenades.map((grenade) => ({
+        id: grenade.id,
+        position: { ...grenade.position },
+        fuseRemaining: Math.max(0, grenade.explodeAt - now),
+      })),
+      pickups: Array.from(this.pickups.values(), (pickup) => ({
+        id: pickup.id,
+        kind: pickup.kind,
+        position: { ...pickup.position },
+        available: now >= pickup.availableAt,
+      })),
       matchTime: Math.max(0, Math.ceil((this.endsAt - now) / 1000)),
       mode: this.mode,
       scores: { ...this.scores },
@@ -582,6 +734,165 @@ export class GameSimulation {
       matchOver: this.matchOver,
       winner: this.winner,
     };
+  }
+
+  private updateGrenades(now: number, delta: number): void {
+    const radius = 0.16;
+    const substeps = Math.max(1, Math.ceil(delta / 0.016));
+    const step = delta / substeps;
+
+    for (let index = this.grenades.length - 1; index >= 0; index -= 1) {
+      const grenade = this.grenades[index];
+      for (let substep = 0; substep < substeps; substep += 1) {
+        grenade.velocity.y -= 24 * step;
+        const nextX = grenade.position.x + grenade.velocity.x * step;
+        const nextZ = grenade.position.z + grenade.velocity.z * step;
+        const nextY = grenade.position.y + grenade.velocity.y * step;
+
+        if (
+          !sphereHitsMap(nextX, grenade.position.y, grenade.position.z, radius)
+        ) {
+          grenade.position.x = nextX;
+        } else {
+          grenade.velocity.x *= -0.45;
+        }
+        if (
+          !sphereHitsMap(grenade.position.x, grenade.position.y, nextZ, radius)
+        ) {
+          grenade.position.z = nextZ;
+        } else {
+          grenade.velocity.z *= -0.45;
+        }
+        if (
+          !sphereHitsMap(grenade.position.x, nextY, grenade.position.z, radius)
+        ) {
+          grenade.position.y = nextY;
+        } else if (grenade.velocity.y < 0) {
+          grenade.velocity.y *= -0.4;
+        } else {
+          grenade.velocity.y = 0;
+        }
+
+        if (grenade.position.y < radius) {
+          grenade.position.y = radius;
+          grenade.velocity.y = Math.abs(grenade.velocity.y) * 0.4;
+          grenade.velocity.x *= 0.72;
+          grenade.velocity.z *= 0.72;
+        }
+        grenade.position.x = clamp(
+          grenade.position.x,
+          -ARENA_LIMIT,
+          ARENA_LIMIT,
+        );
+        grenade.position.z = clamp(
+          grenade.position.z,
+          -ARENA_LIMIT,
+          ARENA_LIMIT,
+        );
+      }
+
+      if (now >= grenade.explodeAt) {
+        this.explodeGrenade(grenade, now);
+        this.grenades.splice(index, 1);
+      }
+    }
+  }
+
+  private explodeGrenade(grenade: SimGrenade, now: number): void {
+    this.events.onGrenadeExploded?.({
+      id: grenade.id,
+      position: { ...grenade.position },
+      radius: GRENADE_RADIUS,
+    });
+
+    const owner = this.players.get(grenade.ownerId) ?? null;
+    for (const victim of this.players.values()) {
+      if (victim.health <= 0) {
+        continue;
+      }
+      if (
+        owner &&
+        victim.id !== owner.id &&
+        victim.team === owner.team &&
+        !this.rules.friendlyFire
+      ) {
+        continue;
+      }
+
+      const center = {
+        x: victim.position.x,
+        y: victim.position.y + 0.9,
+        z: victim.position.z,
+      };
+      const distance = Math.hypot(
+        center.x - grenade.position.x,
+        center.y - grenade.position.y,
+        center.z - grenade.position.z,
+      );
+      if (distance > GRENADE_RADIUS) {
+        continue;
+      }
+
+      let falloff = Math.max(0.35, 1 - distance / GRENADE_RADIUS);
+      if (
+        !hasLineOfSight(grenade.position, center, this.mapObjects)
+      ) {
+        falloff *= 0.45;
+      }
+      const damage =
+        GRENADE_MAX_DAMAGE *
+        falloff *
+        this.rules.damageMultiplier *
+        (owner?.isBot ? BOT_DAMAGE_MULTIPLIER : 1);
+      const dealt = Math.round(applyDamage(victim, damage));
+      if (owner) {
+        this.events.onHit?.(owner.id, victim.id, dealt, false);
+      }
+      if (victim.health <= 0) {
+        this.killPlayer(owner, victim, false, now, null);
+      }
+    }
+  }
+
+  private updatePickups(now: number): void {
+    for (const pickup of this.pickups.values()) {
+      if (now < pickup.availableAt) {
+        continue;
+      }
+      for (const player of this.players.values()) {
+        if (player.health <= 0) {
+          continue;
+        }
+        const distance = Math.hypot(
+          player.position.x - pickup.position.x,
+          player.position.z - pickup.position.z,
+        );
+        if (distance > PICKUP_RADIUS) {
+          continue;
+        }
+        if (
+          pickup.kind === "medkit" &&
+          player.medkits >= MAX_MEDKITS
+        ) {
+          continue;
+        }
+        if (pickup.kind === "armor" && player.armor >= MAX_ARMOR) {
+          continue;
+        }
+
+        if (pickup.kind === "medkit") {
+          player.medkits = Math.min(MAX_MEDKITS, player.medkits + 1);
+        } else {
+          player.armor = Math.min(
+            MAX_ARMOR,
+            player.armor + ARMOR_PICKUP_AMOUNT,
+          );
+        }
+        pickup.availableAt = now + PICKUP_RESPAWN_MS;
+        this.events.onPickup?.(player.id, pickup.kind);
+        break;
+      }
+    }
   }
 
   private toState(player: SimPlayer, now: number): PlayerState {
@@ -594,6 +905,9 @@ export class GameSimulation {
       position: { ...player.position },
       rotation: { ...player.rotation },
       health: Math.round(player.health),
+      armor: Math.round(player.armor),
+      medkits: player.medkits,
+      grenades: player.grenades,
       kills: player.kills,
       deaths: player.deaths,
       weapon: player.weapon,
@@ -604,10 +918,11 @@ export class GameSimulation {
   }
 
   private killPlayer(
-    killer: SimPlayer,
+    killer: SimPlayer | null,
     victim: SimPlayer,
     headshot: boolean,
     now: number,
+    weapon: WeaponId | null,
   ): void {
     victim.health = 0;
     victim.deaths += 1;
@@ -618,20 +933,19 @@ export class GameSimulation {
     victim.reloadEndsAt = 0;
     victim.deadUntil = now + RESPAWN_TIME;
 
-    if (killer.id !== victim.id) {
+    if (killer && killer.id !== victim.id) {
       killer.kills += 1;
       if (this.mode === "tdm" && killer.team !== "ffa") {
         this.scores[killer.team as "alpha" | "bravo"] += 1;
       }
     }
 
-    const killerWeapon = killer.id === victim.id ? null : killer.weapon;
     this.events.onKilled?.(
-      killer.id === victim.id ? null : killer.id,
+      killer && killer.id !== victim.id ? killer.id : null,
       victim.id,
       headshot,
       victim.deadUntil,
-      killerWeapon,
+      killer && killer.id !== victim.id ? weapon : null,
     );
   }
 
@@ -643,6 +957,9 @@ export class GameSimulation {
     player.grounded = true;
     player.accumulator = 0;
     player.health = MAX_HEALTH;
+    player.armor = SPAWN_ARMOR;
+    player.medkits = START_MEDKITS;
+    player.grenades = START_GRENADES;
     player.weapons = createAmmo();
     player.weapon = "rifle";
     player.reloadEndsAt = 0;
@@ -674,11 +991,18 @@ export class GameSimulation {
     this.endsAt = now + this.rules.matchDurationSeconds * 1000;
     this.scores.alpha = 0;
     this.scores.bravo = 0;
+    this.grenades.length = 0;
+    for (const pickup of this.pickups.values()) {
+      pickup.availableAt = 0;
+    }
 
     for (const player of this.players.values()) {
       player.kills = 0;
       player.deaths = 0;
       player.health = MAX_HEALTH;
+      player.armor = SPAWN_ARMOR;
+      player.medkits = START_MEDKITS;
+      player.grenades = START_GRENADES;
       player.weapons = createAmmo();
       player.weapon = "rifle";
       player.reloadEndsAt = 0;
@@ -777,6 +1101,17 @@ export class GameSimulation {
 
     if (!target) {
       player.bot.targetId = null;
+      if (
+        !player.bot.waypoint ||
+        Math.hypot(
+          player.bot.waypoint.x - player.position.x,
+          player.bot.waypoint.z - player.position.z,
+        ) < 2.5
+      ) {
+        player.bot.waypoint =
+          MAP_WAYPOINTS[Math.floor(Math.random() * MAP_WAYPOINTS.length)];
+      }
+      const waypoint = player.bot.waypoint;
       player.input.forward = true;
       player.input.backward = false;
       player.input.left = false;
@@ -784,8 +1119,8 @@ export class GameSimulation {
       player.input.jump = false;
       player.input.ads = false;
       player.input.yaw = Math.atan2(
-        -(player.position.x - 0),
-        -(player.position.z - 0),
+        -(waypoint.x - player.position.x),
+        -(waypoint.z - player.position.z),
       );
       return;
     }
@@ -798,7 +1133,7 @@ export class GameSimulation {
     if (target.id !== player.bot.targetId) {
       player.bot.targetId = target.id;
       player.bot.burstRemaining = 2 + Math.floor(Math.random() * 3);
-      player.bot.nextShotAt = now + 260 + Math.random() * 360;
+      player.bot.nextShotAt = now + 600 + Math.random() * 600;
     }
     const dx = target.position.x - player.position.x;
     const dz = target.position.z - player.position.z;
@@ -871,7 +1206,7 @@ export class GameSimulation {
       return;
     }
 
-    const aimError = (1 - player.bot.skill) * 0.075;
+    const aimError = 0.008 + (1 - player.bot.skill) * 0.13;
     const shotDirection = normalizeDirection({
       x: targetEye.x - eye.x + (Math.random() - 0.5) * aimError * distance,
       y:
@@ -886,7 +1221,7 @@ export class GameSimulation {
       player.bot.burstRemaining -= 1;
       if (player.bot.burstRemaining <= 0) {
         player.bot.burstRemaining = 2 + Math.floor(Math.random() * 3);
-        player.bot.nextShotAt = now + 550 + Math.random() * 750;
+        player.bot.nextShotAt = now + 800 + Math.random() * 650;
       } else {
         player.bot.nextShotAt =
           now + spec.fireIntervalMs * (1.1 + Math.random() * 0.25);
@@ -910,6 +1245,9 @@ export class GameSimulation {
       const dx = candidate.position.x - player.position.x;
       const dz = candidate.position.z - player.position.z;
       const distance = Math.hypot(dx, dz);
+      if (distance > 62) {
+        continue;
+      }
       const eye: Vec3 = {
         x: player.position.x,
         y: player.position.y + EYE_HEIGHT,
@@ -921,7 +1259,11 @@ export class GameSimulation {
         z: candidate.position.z,
       };
       const visible = hasLineOfSight(eye, targetEye, this.mapObjects);
-      const score = distance + (visible ? 0 : 18);
+      let score = distance + (visible ? 0 : 26);
+      score += candidate.isBot ? -4 : 8;
+      if (candidate.id === player.bot.targetId) {
+        score -= 6;
+      }
       if (score < bestScore) {
         best = candidate;
         bestScore = score;

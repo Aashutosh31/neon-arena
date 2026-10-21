@@ -35,6 +35,13 @@
         <div id="ping">--</div>
       </div>
 
+      <canvas
+        id="minimap"
+        width="220"
+        height="220"
+        aria-label="Minimap"
+      ></canvas>
+
       <div id="crosshair">
         <span></span>
         <span></span>
@@ -59,6 +66,14 @@
       <div id="health-bar">
         <div id="health-fill"></div>
         <div id="health-label">HP 100</div>
+      </div>
+      <div id="armor-bar">
+        <div id="armor-fill"></div>
+        <div id="armor-label">ARMOR 25</div>
+      </div>
+      <div id="utility-bar">
+        <span id="medkit-count">MEDKIT 1 · H</span>
+        <span id="grenade-count">FRAG 2 · G</span>
       </div>
 
       <div id="ammo-panel">
@@ -307,6 +322,14 @@
       <div id="touch-look"></div>
       <div id="touch-move">
         <div id="touch-move-knob"></div>
+      </div>
+      <div class="touch-utility">
+        <button id="touch-medkit" class="touch-button small" type="button">
+          MED
+        </button>
+        <button id="touch-grenade" class="touch-button small" type="button">
+          FRAG
+        </button>
       </div>
       <div class="touch-actions">
         <button id="touch-ads" class="touch-button small" type="button">

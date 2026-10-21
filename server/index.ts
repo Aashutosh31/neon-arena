@@ -220,6 +220,15 @@ function createMatch(mode: GameMode, entries: QueueEntry[], now: number): void {
     onRespawn: (player) => {
       io.to(room).emit("player_respawned", player);
     },
+    onGrenadeThrown: (payload) => {
+      io.to(room).emit("grenade_thrown", payload);
+    },
+    onGrenadeExploded: (payload) => {
+      io.to(room).emit("grenade_exploded", payload);
+    },
+    onPickup: (playerId, kind) => {
+      io.to(room).emit("pickup_collected", { playerId, kind });
+    },
     onMatchOver: (winner, scores, restartIn) => {
       io.to(room).emit("match_over", { winner, scores, restartIn });
     },
@@ -392,6 +401,19 @@ io.on("connection", (socket) => {
 
   socket.on("player_reload", () => {
     getMatchForSocket(socket.id)?.game.reload(socket.id, Date.now());
+  });
+
+  socket.on("player_throw_grenade", (payload) => {
+    const match = getMatchForSocket(socket.id);
+    const direction = readVec3(payload?.direction);
+    if (!match || !direction) {
+      return;
+    }
+    match.game.throwGrenade(socket.id, direction, Date.now());
+  });
+
+  socket.on("player_use_medkit", () => {
+    getMatchForSocket(socket.id)?.game.useMedkit(socket.id);
   });
 
   socket.on("player_switch_weapon", (weapon: WeaponId) => {

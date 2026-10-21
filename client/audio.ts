@@ -107,6 +107,43 @@ function synthDeath(): Float32Array {
   return samples;
 }
 
+function synthExplosion(): Float32Array {
+  const duration = 0.55;
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+  let noise = 0;
+  let seed = 0x5a617282;
+
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const white = (seed / 0x7fffffff) * 2 - 1;
+    noise = noise * 0.82 + white * 0.18;
+    const thump = Math.sin(2 * Math.PI * (70 - 42 * (t / duration)) * t);
+    samples[i] =
+      (noise * 0.9 + thump * 0.45) * Math.exp(-5.4 * t);
+  }
+
+  return samples;
+}
+
+function synthPickup(): Float32Array {
+  const duration = 0.16;
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const envelope = Math.exp(-18 * t);
+    samples[i] =
+      (Math.sin(2 * Math.PI * 620 * t) * 0.55 +
+        Math.sin(2 * Math.PI * 930 * t) * 0.35) *
+      envelope;
+  }
+
+  return samples;
+}
+
 function createAudio(url: string, volume: number): HTMLAudioElement {
   const audio = new Audio(url);
   audio.preload = "auto";
@@ -145,6 +182,9 @@ export class GameAudio {
   private readonly reload: HTMLAudioElement;
   private readonly empty: HTMLAudioElement;
   private readonly spawn: HTMLAudioElement;
+  private readonly grenadeThrow: HTMLAudioElement;
+  private readonly explosion: HTMLAudioElement;
+  private readonly pickup: HTMLAudioElement;
 
   constructor() {
     const shootUrl = encodeWav(synthShoot());
@@ -158,6 +198,9 @@ export class GameAudio {
     this.empty = createAudio(encodeWav(synthClick(120, 0.05)), 0.16);
     this.spawn = createAudio(encodeWav(synthClick(640, 0.12)), 0.14);
     this.spawn.playbackRate = 0.8;
+    this.grenadeThrow = createAudio(encodeWav(synthClick(210, 0.07)), 0.16);
+    this.explosion = createAudio(encodeWav(synthExplosion()), 0.35);
+    this.pickup = createAudio(encodeWav(synthPickup()), 0.2);
   }
 
   playShoot(weapon: WeaponId): void {
@@ -189,6 +232,18 @@ export class GameAudio {
 
   playSpawn(): void {
     this.play(this.spawn);
+  }
+
+  playGrenadeThrow(): void {
+    this.play(this.grenadeThrow);
+  }
+
+  playExplosion(): void {
+    this.play(this.explosion);
+  }
+
+  playPickup(): void {
+    this.play(this.pickup);
   }
 
   private play(audio: HTMLAudioElement): void {

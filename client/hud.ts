@@ -1,9 +1,14 @@
-import { MAX_HEALTH } from "../shared/constants";
+import {
+  ARENA_HALF_EXTENT,
+  MAX_ARMOR,
+  MAX_HEALTH,
+} from "../shared/constants";
 import {
   DEFAULT_RULES,
   sanitizeName,
   sanitizeRules,
 } from "../shared/game";
+import { MAP_ROOFS, MAP_SIDEWALKS } from "../shared/map";
 import type {
   GameMode,
   GameRules,
@@ -54,6 +59,16 @@ export class Hud {
   private readonly healthBar = byId<HTMLDivElement>("health-bar");
   private readonly healthFill = byId<HTMLDivElement>("health-fill");
   private readonly healthLabel = byId<HTMLDivElement>("health-label");
+  private readonly armorBar = byId<HTMLDivElement>("armor-bar");
+  private readonly armorFill = byId<HTMLDivElement>("armor-fill");
+  private readonly armorLabel = byId<HTMLDivElement>("armor-label");
+  private readonly medkitCount = byId<HTMLSpanElement>("medkit-count");
+  private readonly grenadeCount = byId<HTMLSpanElement>("grenade-count");
+  private readonly touchMedkit =
+    byId<HTMLButtonElement>("touch-medkit");
+  private readonly touchGrenade =
+    byId<HTMLButtonElement>("touch-grenade");
+  private readonly minimap = byId<HTMLCanvasElement>("minimap");
   private readonly hitMarker = byId<HTMLDivElement>("hit-marker");
   private readonly damageFlash = byId<HTMLDivElement>("damage-flash");
   private readonly matchTimer = byId<HTMLDivElement>("match-timer");
@@ -100,12 +115,14 @@ export class Hud {
   private hitMarkerTimeout = 0;
   private damageFlashTimeout = 0;
   private matchOverScoreLine = "";
+  private minimapBase: HTMLCanvasElement | null = null;
 
   constructor() {
     this.buildWeaponSlots([], () => undefined);
     this.loadName();
     this.loadMods();
     this.bindMods();
+    this.buildMinimapBase();
   }
 
   bindMenu(actions: MenuActions): void {
@@ -205,6 +222,110 @@ export class Hud {
       this.healthLabel.textContent = `HP ${clamped}`;
     }
     this.healthBar?.classList.toggle("low", clamped <= 25);
+  }
+
+  setArmor(armor: number): void {
+    const clamped = Math.max(0, Math.min(MAX_ARMOR, Math.round(armor)));
+    if (this.armorFill) {
+      this.armorFill.style.width = `${(clamped / MAX_ARMOR) * 100}%`;
+    }
+    if (this.armorLabel) {
+      this.armorLabel.textContent = `ARMOR ${clamped}`;
+    }
+    this.armorBar?.classList.toggle("low", clamped <= 0);
+  }
+
+  updateUtilities(medkits: number, grenades: number): void {
+    if (this.medkitCount) {
+      this.medkitCount.textContent = `MEDKIT ${medkits} · H`;
+      this.medkitCount.classList.toggle("utility-empty", medkits <= 0);
+    }
+    if (this.grenadeCount) {
+      this.grenadeCount.textContent = `FRAG ${grenades} · G`;
+      this.grenadeCount.classList.toggle("utility-empty", grenades <= 0);
+    }
+    if (this.touchMedkit) {
+      this.touchMedkit.textContent = `MED ${medkits}`;
+      this.touchMedkit.classList.toggle("utility-empty", medkits <= 0);
+    }
+    if (this.touchGrenade) {
+      this.touchGrenade.textContent = `FRAG ${grenades}`;
+      this.touchGrenade.classList.toggle("utility-empty", grenades <= 0);
+    }
+  }
+
+  updateMinimap(state: GameStatePayload, localId: string): void {
+    const canvas = this.minimap;
+    const base = this.minimapBase;
+    if (!canvas || !base) {
+      return;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    const size = canvas.width;
+    context.clearRect(0, 0, size, size);
+    context.drawImage(base, 0, 0);
+
+    const toMap = (x: number, z: number): [number, number] => {
+      const padding = 12;
+      const scale = (size - padding * 2) / (ARENA_HALF_EXTENT * 2);
+      return [
+        padding + (x + ARENA_HALF_EXTENT) * scale,
+        padding + (z + ARENA_HALF_EXTENT) * scale,
+      ];
+    };
+
+    for (const pickup of state.pickups) {
+      if (!pickup.available) {
+        continue;
+      }
+      const [x, y] = toMap(pickup.position.x, pickup.position.z);
+      context.fillStyle =
+        pickup.kind === "medkit" ? "#66ffb2" : "#5ad8ff";
+      context.globalAlpha = 0.78;
+      context.fillRect(x - 1.5, y - 1.5, 3, 3);
+    }
+    context.globalAlpha = 1;
+
+    const local = state.players.find((player) => player.id === localId);
+    for (const player of state.players) {
+      if (player.id === localId || player.health <= 0) {
+        continue;
+      }
+      const [x, y] = toMap(player.position.x, player.position.z);
+      const friendly =
+        state.mode === "tdm" &&
+        local !== undefined &&
+        player.team === local.team;
+      context.fillStyle = friendly ? "#66f6ff" : "#ff3d5e";
+      context.shadowColor = context.fillStyle;
+      context.shadowBlur = friendly ? 4 : 8;
+      context.beginPath();
+      context.arc(x, y, friendly ? 2.6 : 3.4, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.shadowBlur = 0;
+
+    if (local) {
+      const [x, y] = toMap(local.position.x, local.position.z);
+      context.save();
+      context.translate(x, y);
+      context.rotate(-local.rotation.y);
+      context.fillStyle = "#ffffff";
+      context.shadowColor = "#66f6ff";
+      context.shadowBlur = 8;
+      context.beginPath();
+      context.moveTo(0, -6);
+      context.lineTo(4.2, 4.6);
+      context.lineTo(0, 2.6);
+      context.lineTo(-4.2, 4.6);
+      context.closePath();
+      context.fill();
+      context.restore();
+      context.shadowBlur = 0;
+    }
   }
 
   flashHit(headshot: boolean): void {
@@ -586,6 +707,77 @@ export class Hud {
 
   private matchOverTimer = 0;
   private matchOverAt = 0;
+
+  private buildMinimapBase(): void {
+    const size = this.minimap?.width ?? 220;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    const padding = 12;
+    const scale = (size - padding * 2) / (ARENA_HALF_EXTENT * 2);
+    const toMap = (x: number, z: number): [number, number] => [
+      padding + (x + ARENA_HALF_EXTENT) * scale,
+      padding + (z + ARENA_HALF_EXTENT) * scale,
+    ];
+
+    context.fillStyle = "#03090f";
+    context.fillRect(0, 0, size, size);
+
+    context.strokeStyle = "rgba(102, 246, 255, 0.08)";
+    context.lineWidth = 1;
+    for (let value = -40; value <= 40; value += 10) {
+      const [x] = toMap(value, 0);
+      const [, y] = toMap(0, value);
+      context.beginPath();
+      context.moveTo(x, padding);
+      context.lineTo(x, size - padding);
+      context.moveTo(padding, y);
+      context.lineTo(size - padding, y);
+      context.stroke();
+    }
+
+    context.fillStyle = "#0a1d27";
+    for (const sidewalk of MAP_SIDEWALKS) {
+      const [x, y] = toMap(sidewalk.x, sidewalk.z);
+      context.fillRect(
+        x - (sidewalk.width * scale) / 2,
+        y - (sidewalk.depth * scale) / 2,
+        sidewalk.width * scale,
+        sidewalk.depth * scale,
+      );
+    }
+
+    for (const roof of MAP_ROOFS) {
+      const [x, y] = toMap(roof.x, roof.z);
+      const width = roof.width * scale;
+      const depth = roof.depth * scale;
+      context.fillStyle = "#143342";
+      context.strokeStyle = "rgba(88, 220, 255, 0.42)";
+      context.lineWidth = 1;
+      context.fillRect(x - width / 2, y - depth / 2, width, depth);
+      context.strokeRect(x - width / 2, y - depth / 2, width, depth);
+    }
+
+    context.strokeStyle = "rgba(88, 220, 255, 0.35)";
+    context.lineWidth = 1.5;
+    context.strokeRect(
+      padding,
+      padding,
+      size - padding * 2,
+      size - padding * 2,
+    );
+
+    context.fillStyle = "rgba(102, 246, 255, 0.6)";
+    context.font = "bold 9px monospace";
+    context.textAlign = "left";
+    context.fillText("N", padding + 3, padding + 10);
+    this.minimapBase = canvas;
+  }
 
   private buildWeaponSlots(
     weapons: readonly WeaponId[],

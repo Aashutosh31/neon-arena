@@ -1668,3 +1668,166 @@ body.touch .touch-hint {
     transition-duration: 0.001ms !important;
   }
 }
+
+#minimap {
+  position: absolute;
+  top: max(76px, calc(env(safe-area-inset-top) + 76px));
+  right: max(16px, env(safe-area-inset-right));
+  width: 168px;
+  height: 168px;
+  border: 1px solid rgba(88, 220, 255, 0.26);
+  background: rgba(3, 9, 15, 0.78);
+  box-shadow:
+    inset 0 0 30px rgba(0, 229, 255, 0.06),
+    0 0 20px rgba(0, 0, 0, 0.35);
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+#kill-feed {
+  right: max(204px, calc(env(safe-area-inset-right) + 204px));
+}
+
+#armor-bar {
+  position: absolute;
+  left: max(22px, env(safe-area-inset-left));
+  bottom: max(46px, calc(env(safe-area-inset-bottom) + 46px));
+  width: 186px;
+  height: 11px;
+  border: 1px solid rgba(90, 216, 255, 0.3);
+  background: rgba(4, 11, 18, 0.72);
+  transform: skewX(-12deg);
+  overflow: hidden;
+}
+
+#armor-fill {
+  width: 25%;
+  height: 100%;
+  background: linear-gradient(90deg, #155d8a, #5ad8ff);
+  box-shadow: 0 0 12px rgba(90, 216, 255, 0.35);
+  transition: width 160ms ease;
+}
+
+#armor-label {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%) skewX(12deg);
+  color: #031018;
+  font-family: var(--mono);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+#utility-bar {
+  position: absolute;
+  left: max(22px, env(safe-area-inset-left));
+  bottom: max(66px, calc(env(safe-area-inset-bottom) + 66px));
+  display: flex;
+  gap: 12px;
+  color: rgba(233, 248, 255, 0.72);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+#medkit-count,
+#grenade-count {
+  padding: 3px 7px;
+  border: 1px solid rgba(88, 220, 255, 0.16);
+  background: rgba(5, 12, 20, 0.68);
+}
+
+#grenade-count {
+  border-color: rgba(255, 122, 47, 0.3);
+  color: var(--ember);
+}
+
+.utility-empty {
+  opacity: 0.36;
+}
+
+.touch-utility {
+  display: none;
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(200px, calc(env(safe-area-inset-bottom) + 196px));
+  z-index: 3;
+  gap: 6px;
+  pointer-events: none;
+}
+
+body.touch.playing .touch-utility {
+  display: flex;
+}
+
+.touch-utility .touch-button {
+  width: 62px;
+  height: 42px;
+  border-radius: 10px;
+  font-size: 8px;
+}
+
+#touch-grenade {
+  border-color: rgba(255, 122, 47, 0.45);
+  color: var(--ember);
+}
+
+body.touch #utility-bar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  #minimap {
+    top: 64px;
+    right: max(10px, env(safe-area-inset-right));
+    width: 116px;
+    height: 116px;
+  }
+
+  #kill-feed {
+    top: 68px;
+    right: max(136px, calc(env(safe-area-inset-right) + 132px));
+    width: min(240px, 56vw);
+  }
+
+  #armor-bar {
+    left: 14px;
+    bottom: max(178px, calc(env(safe-area-inset-bottom) + 174px));
+    width: 160px;
+    height: 12px;
+  }
+
+  #utility-bar {
+    left: 14px;
+    bottom: max(200px, calc(env(safe-area-inset-bottom) + 196px));
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 430px) {
+  #minimap {
+    width: 104px;
+    height: 104px;
+  }
+
+  #kill-feed {
+    right: max(122px, calc(env(safe-area-inset-right) + 118px));
+    width: min(210px, 52vw);
+  }
+}
+
+#armor-label {
+  color: #d8f6ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+#armor-bar.low {
+  border-color: rgba(255, 61, 94, 0.5);
+}
+
+#armor-bar.low #armor-fill {
+  background: linear-gradient(90deg, #6d1c2a, #ff5c7a);
+}

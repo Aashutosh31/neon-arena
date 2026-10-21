@@ -4,6 +4,7 @@ import "./style.css";
 import {
   EYE_HEIGHT,
   MATCH_RESTART_MS,
+  MAX_HEALTH,
   MAX_MATCH_PLAYERS,
   NETWORK_TICK_RATE,
 } from "../shared/constants";
@@ -26,8 +27,10 @@ import type {
 import { WEAPONS, nextWeapon } from "../shared/weapons";
 import { GameAudio } from "./audio";
 import { CombatEffects } from "./effects";
+import { GrenadeManager } from "./grenades";
 import { Hud } from "./hud";
 import { InputManager, IS_TOUCH_DEVICE } from "./input";
+import { PickupManager } from "./pickups";
 import { Gun, Player } from "./player";
 import { RemoteManager } from "./remotes";
 import { createWorld } from "./world";
@@ -51,6 +54,8 @@ const effects = new CombatEffects(
   IS_TOUCH_DEVICE,
 );
 const remotes = new RemoteManager(scene, world.staticMeshes);
+const grenades = new GrenadeManager(scene, audio);
+const pickups = new PickupManager(scene);
 const localPlayer = new Player(new THREE.Vector3(0, 0, 10), 0x66f6ff);
 localPlayer.mesh.visible = false;
 scene.add(localPlayer.mesh);
@@ -169,6 +174,17 @@ function createOfflineEvents(): GameEvents {
         handleLocalRespawn(player);
       }
     },
+    onGrenadeThrown: (payload) => {
+      grenades.spawn(payload);
+    },
+    onGrenadeExploded: (payload) => {
+      grenades.explode(payload);
+    },
+    onPickup: (collectorId) => {
+      if (collectorId === playerId) {
+        audio.playPickup();
+      }
+    },
     onMatchOver: (winner, scores, restartIn) => {
       handleMatchOver(
         winner,
@@ -226,6 +242,8 @@ function startOffline(nextMode: GameMode): void {
 
   active = true;
   remotes.clear();
+  grenades.clear();
+  pickups.clear();
   hud.startMatch();
   hud.setConnection("LOCAL MATCH");
   hud.setPing("--");
@@ -403,6 +421,29 @@ function bindSocket(client: GameSocket): void {
     remotes.remove(payload);
   });
 
+  client.on("grenade_thrown", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    grenades.spawn(payload);
+  });
+
+  client.on("grenade_exploded", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    grenades.explode(payload);
+  });
+
+  client.on("pickup_collected", (payload) => {
+    if (socket !== client || !active) {
+      return;
+    }
+    if (payload.playerId === playerId) {
+      audio.playPickup();
+    }
+  });
+
   client.on("match_over", (payload) => {
     if (socket !== client || !active) {
       return;
@@ -450,6 +491,8 @@ function startOnlineMatch(payload: GameStatePayload): void {
   gun.object.visible = true;
   resetScopeIndex(local.weapon);
   remotes.clear();
+  grenades.clear();
+  pickups.clear();
   hud.startMatch();
   hud.setConnection("ONLINE");
   document.body.classList.add("playing");
@@ -469,6 +512,9 @@ function syncState(
   mode = payload.mode;
   rules = payload.rules;
   localPlayer.setRules(rules);
+  grenades.sync(payload.grenades);
+  pickups.sync(payload.pickups);
+  hud.updateMinimap(payload, playerId);
 
   if (payload.matchOver) {
     if (!matchOver) {
@@ -543,6 +589,8 @@ function syncState(
   }
 
   hud.setHealth(local.health);
+  hud.setArmor(local.armor);
+  hud.updateUtilities(local.medkits, local.grenades);
   hud.updateWeapon(
     local.weapon,
     local.ammo,
@@ -583,6 +631,8 @@ function handleMatchOver(
   if (!state) {
     state = {
       players: [],
+      grenades: [],
+      pickups: [],
       matchTime: 0,
       mode,
       scores,
@@ -651,10 +701,63 @@ function handleInputActions(): void {
   if (input.consumeScope()) {
     cycleScope();
   }
+  if (input.consumeGrenade()) {
+    requestGrenade();
+  }
+  if (input.consumeMedkit()) {
+    requestMedkit();
+  }
   const slot = input.consumeWeaponSlot();
   if (slot) {
     requestWeapon(slot);
   }
+}
+
+function requestGrenade(): void {
+  const local = localState();
+  if (!local || local.health <= 0 || matchOver || dead) {
+    return;
+  }
+  if (local.grenades <= 0) {
+    audio.playEmpty();
+    return;
+  }
+  camera.getWorldDirection(lookDirection);
+  if (offlineGame) {
+    offlineGame.throwGrenade(
+      playerId,
+      lookDirection,
+      Date.now(),
+    );
+  } else {
+    socket?.emit("player_throw_grenade", {
+      direction: {
+        x: lookDirection.x,
+        y: lookDirection.y,
+        z: lookDirection.z,
+      },
+    });
+  }
+}
+
+function requestMedkit(): void {
+  const local = localState();
+  if (
+    !local ||
+    local.health <= 0 ||
+    local.health >= MAX_HEALTH ||
+    local.medkits <= 0 ||
+    matchOver ||
+    dead
+  ) {
+    return;
+  }
+  if (offlineGame) {
+    offlineGame.useMedkit(playerId);
+  } else {
+    socket?.emit("player_use_medkit");
+  }
+  audio.playPickup();
 }
 
 function attemptShoot(): void {
@@ -802,6 +905,8 @@ function leaveToMenu(): void {
   input.setEnabled(false);
   input.clear();
   remotes.clear();
+  grenades.clear();
+  pickups.clear();
   gun.object.visible = false;
   localPlayer.mesh.visible = false;
   localPlayer.reset({ x: 0, y: 0, z: 10 });
@@ -976,6 +1081,8 @@ function animate(): void {
   updateCamera(delta);
   effects.update(delta);
   remotes.updateVisuals(delta);
+  grenades.update(delta);
+  pickups.update(delta);
   renderer.render(scene, camera);
 }
 

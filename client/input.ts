@@ -18,6 +18,8 @@ export class InputManager {
   private reloadRequested = false;
   private switchRequested = false;
   private scopeRequested = false;
+  private grenadeRequested = false;
+  private medkitRequested = false;
   private weaponSlotRequested: WeaponId | null = null;
 
   private readonly moveBase =
@@ -38,6 +40,10 @@ export class InputManager {
     document.querySelector<HTMLButtonElement>("#touch-switch");
   private readonly scopeButton =
     document.querySelector<HTMLButtonElement>("#touch-scope");
+  private readonly grenadeButton =
+    document.querySelector<HTMLButtonElement>("#touch-grenade");
+  private readonly medkitButton =
+    document.querySelector<HTMLButtonElement>("#touch-medkit");
 
   private movePointer: number | null = null;
   private lookPointer: number | null = null;
@@ -82,6 +88,12 @@ export class InputManager {
     this.bindPress(this.scopeButton, () => {
       this.scopeRequested = true;
     });
+    this.bindPress(this.grenadeButton, () => {
+      this.grenadeRequested = true;
+    });
+    this.bindPress(this.medkitButton, () => {
+      this.medkitRequested = true;
+    });
   }
 
   setEnabled(enabled: boolean): void {
@@ -102,7 +114,9 @@ export class InputManager {
       event.code === "KeyS" ||
       event.code === "KeyD" ||
       event.code === "KeyR" ||
-      event.code === "KeyQ"
+      event.code === "KeyQ" ||
+      event.code === "KeyG" ||
+      event.code === "KeyH"
     ) {
       event.preventDefault();
     }
@@ -118,6 +132,12 @@ export class InputManager {
     }
     if (event.code === "KeyV") {
       this.scopeRequested = true;
+    }
+    if (event.code === "KeyG") {
+      this.grenadeRequested = true;
+    }
+    if (event.code === "KeyH") {
+      this.medkitRequested = true;
     }
     if (event.code.startsWith("Digit")) {
       const slot = Number(event.code.slice(5));
@@ -353,6 +373,18 @@ export class InputManager {
     return requested;
   }
 
+  consumeGrenade(): boolean {
+    const requested = this.grenadeRequested;
+    this.grenadeRequested = false;
+    return requested;
+  }
+
+  consumeMedkit(): boolean {
+    const requested = this.medkitRequested;
+    this.medkitRequested = false;
+    return requested;
+  }
+
   consumeWeaponSlot(): WeaponId | null {
     const requested = this.weaponSlotRequested;
     this.weaponSlotRequested = null;
@@ -372,6 +404,8 @@ export class InputManager {
     this.reloadRequested = false;
     this.switchRequested = false;
     this.scopeRequested = false;
+    this.grenadeRequested = false;
+    this.medkitRequested = false;
     this.weaponSlotRequested = null;
     if (this.moveKnob) {
       this.moveKnob.style.transform = "translate(-50%, -50%)";
