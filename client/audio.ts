@@ -41,7 +41,7 @@ function encodeWav(samples: Float32Array): string {
 }
 
 function synthShoot(): Float32Array {
-  const duration = 0.1;
+  const duration = 0.14;
   const length = Math.round(SAMPLE_RATE * duration);
   const samples = new Float32Array(length);
   let noise = 0;
@@ -51,9 +51,11 @@ function synthShoot(): Float32Array {
     const t = i / SAMPLE_RATE;
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
     const white = (seed / 0x7fffffff) * 2 - 1;
-    noise = noise * 0.55 + white * 0.45;
-    const sweep = Math.sin(2 * Math.PI * (500 - 380 * (t / duration)) * t);
-    samples[i] = (noise * 0.8 + sweep * 0.5) * Math.exp(-32 * t);
+    noise = noise * 0.52 + white * 0.48;
+    const sweep = Math.sin(2 * Math.PI * (540 - 410 * (t / duration)) * t);
+    const thump = Math.sin(2 * Math.PI * (105 - 45 * (t / duration)) * t);
+    samples[i] =
+      (noise * 0.9 + sweep * 0.58 + thump * 0.5) * Math.exp(-24 * t);
   }
 
   return samples;
@@ -163,14 +165,14 @@ const SHOT_RATE: Record<WeaponId, number> = {
 };
 
 const SHOT_VOLUME: Record<WeaponId, number> = {
-  rifle: 0.22,
-  smg: 0.18,
-  shotgun: 0.3,
-  sniper: 0.32,
-  dmr: 0.26,
-  lmg: 0.24,
-  pistol: 0.2,
-  revolver: 0.28,
+  rifle: 0.4,
+  smg: 0.32,
+  shotgun: 0.5,
+  sniper: 0.52,
+  dmr: 0.44,
+  lmg: 0.42,
+  pistol: 0.36,
+  revolver: 0.48,
 };
 
 export class GameAudio {
@@ -189,7 +191,7 @@ export class GameAudio {
   constructor() {
     const shootUrl = encodeWav(synthShoot());
     this.shoot = createAudio(shootUrl, 0.22);
-    this.remoteShoot = createAudio(shootUrl, 0.1);
+    this.remoteShoot = createAudio(shootUrl, 0.18);
     this.hit = createAudio(encodeWav(synthHit()), 0.25);
     this.headshot = createAudio(encodeWav(synthHit()), 0.3);
     this.headshot.playbackRate = 1.3;
@@ -199,7 +201,7 @@ export class GameAudio {
     this.spawn = createAudio(encodeWav(synthClick(640, 0.12)), 0.14);
     this.spawn.playbackRate = 0.8;
     this.grenadeThrow = createAudio(encodeWav(synthClick(210, 0.07)), 0.16);
-    this.explosion = createAudio(encodeWav(synthExplosion()), 0.35);
+    this.explosion = createAudio(encodeWav(synthExplosion()), 0.5);
     this.pickup = createAudio(encodeWav(synthPickup()), 0.2);
   }
 

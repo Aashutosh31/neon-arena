@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { WeaponId } from "../shared/types";
+import type { GameMode, TeamId, WeaponId } from "../shared/types";
 import type { GameAudio } from "./audio";
 import type { RemoteManager } from "./remotes";
 
@@ -103,17 +103,24 @@ export class CombatEffects {
     scene.add(sparks);
   }
 
-  aimAtRemote(
+  enemyUnderAim(
     origin: THREE.Vector3,
     direction: THREE.Vector3,
     remotes: RemoteManager,
+    localTeam: TeamId,
+    mode: GameMode,
   ): boolean {
     this.raycaster.set(origin, direction);
+    this.raycaster.far = TRACER_RANGE;
     const hits = this.raycaster.intersectObjects(
-      remotes.hittableTargets,
+      [...remotes.hittableTargets, ...this.staticMeshes],
       true,
     );
-    return hits.length > 0 && remotes.isRemoteObject(hits[0].object);
+    return (
+      hits.length > 0 &&
+      remotes.isRemoteObject(hits[0].object) &&
+      remotes.isEnemyObject(hits[0].object, localTeam, mode)
+    );
   }
 
   fireLocal(

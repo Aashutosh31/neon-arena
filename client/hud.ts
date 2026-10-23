@@ -485,6 +485,11 @@ export class Hud {
     }
   }
 
+  setEnemyTarget(active: boolean): void {
+    this.crosshair?.classList.toggle("enemy", active);
+    this.scope?.classList.toggle("enemy", active);
+  }
+
   setAiming(
     aiming: boolean,
     scoped: boolean,

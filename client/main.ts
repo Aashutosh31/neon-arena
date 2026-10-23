@@ -927,6 +927,7 @@ function updateCamera(delta: number): void {
     gun.object.visible = false;
     camera.position.set(0, 2.5, 14);
     camera.lookAt(0, 1.4, 0);
+    hud.setEnemyTarget(false);
     hud.setAiming(false, false);
     if (camera.fov !== 75) {
       camera.fov = 75;
@@ -944,6 +945,21 @@ function updateCamera(delta: number): void {
     );
   }
   camera.rotation.set(pitch, yaw, 0, "YXZ");
+
+  if (local) {
+    camera.getWorldDirection(lookDirection);
+    hud.setEnemyTarget(
+      effects.enemyUnderAim(
+        camera.position,
+        lookDirection,
+        remotes,
+        local.team,
+        mode,
+      ),
+    );
+  } else {
+    hud.setEnemyTarget(false);
+  }
 
   const aiming =
     !paused && !matchOver && !dead && input.isAiming();

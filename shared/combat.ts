@@ -24,7 +24,7 @@ export function rayPlayerDistance(
   direction: Vec3,
   player: CombatTarget,
 ): PlayerRayHit | null {
-  const hitRadius = PLAYER_RADIUS + 0.06;
+  const hitRadius = PLAYER_RADIUS + 0.14;
   const offsetX = origin.x - player.position.x;
   const offsetZ = origin.z - player.position.z;
   const yMin = player.position.y;

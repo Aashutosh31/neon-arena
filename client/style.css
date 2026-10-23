@@ -1831,3 +1831,29 @@ body.touch #utility-bar {
 #armor-bar.low #armor-fill {
   background: linear-gradient(90deg, #6d1c2a, #ff5c7a);
 }
+
+#crosshair.enemy span {
+  background: #ff3d5e;
+  box-shadow: 0 0 8px rgba(255, 61, 94, 0.95);
+}
+
+#crosshair.enemy i {
+  background: #ff3d5e;
+  box-shadow: 0 0 10px rgba(255, 61, 94, 1);
+}
+
+#scope.enemy #scope-reticle {
+  border-color: rgba(255, 61, 94, 0.7);
+  box-shadow:
+    inset 0 0 30px rgba(255, 61, 94, 0.12),
+    0 0 18px rgba(255, 61, 94, 0.22);
+}
+
+#scope.enemy #scope-reticle::before,
+#scope.enemy #scope-reticle::after {
+  background: rgba(255, 61, 94, 0.78);
+}
+
+#scope.enemy #scope-zoom {
+  color: #ff5c7a;
+}

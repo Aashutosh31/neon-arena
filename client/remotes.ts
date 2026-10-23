@@ -53,6 +53,7 @@ export class RemoteManager {
   private readonly scene: THREE.Scene;
   private readonly players = new Map<string, RemotePlayer>();
   private readonly groups = new Set<THREE.Group>();
+  private readonly teams = new Map<THREE.Group, TeamId>();
   private readonly targets: THREE.Object3D[];
 
   constructor(scene: THREE.Scene, staticTargets: THREE.Object3D[]) {
@@ -69,6 +70,24 @@ export class RemoteManager {
     while (current) {
       if (this.groups.has(current as THREE.Group)) {
         return true;
+      }
+      current = current.parent;
+    }
+    return false;
+  }
+
+  isEnemyObject(
+    object: THREE.Object3D,
+    localTeam: TeamId,
+    mode: "tdm" | "ffa",
+  ): boolean {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (this.groups.has(current as THREE.Group)) {
+        const team = this.teams.get(current as THREE.Group);
+        return (
+          team !== undefined && (mode === "ffa" || team !== localTeam)
+        );
       }
       current = current.parent;
     }
@@ -140,6 +159,7 @@ export class RemoteManager {
     this.scene.remove(remote.group);
     this.players.delete(id);
     this.groups.delete(remote.group);
+    this.teams.delete(remote.group);
     const index = this.targets.indexOf(remote.group);
     if (index !== -1) {
       this.targets.splice(index, 1);
@@ -206,6 +226,7 @@ export class RemoteManager {
     };
     this.players.set(state.id, remote);
     this.groups.add(group);
+    this.teams.set(group, state.team);
     this.setAlive(remote, state.health > 0);
     return remote;
   }

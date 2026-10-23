@@ -571,7 +571,8 @@ export class GameSimulation {
     if (player.reloadEndsAt > 0) {
       return;
     }
-    if (now - player.lastShotAt < spec.fireIntervalMs) {
+    const fireGrace = Math.min(30, spec.fireIntervalMs * 0.35);
+    if (now - player.lastShotAt < spec.fireIntervalMs - fireGrace) {
       return;
     }
 
@@ -812,6 +813,7 @@ export class GameSimulation {
       }
       if (
         owner &&
+        owner.team !== "ffa" &&
         victim.id !== owner.id &&
         victim.team === owner.team &&
         !this.rules.friendlyFire
@@ -833,17 +835,14 @@ export class GameSimulation {
         continue;
       }
 
-      let falloff = Math.max(0.35, 1 - distance / GRENADE_RADIUS);
+      let falloff = 1;
       if (
         !hasLineOfSight(grenade.position, center, this.mapObjects)
       ) {
-        falloff *= 0.45;
+        falloff = 0.8;
       }
       const damage =
-        GRENADE_MAX_DAMAGE *
-        falloff *
-        this.rules.damageMultiplier *
-        (owner?.isBot ? BOT_DAMAGE_MULTIPLIER : 1);
+        GRENADE_MAX_DAMAGE * falloff * this.rules.damageMultiplier;
       const dealt = Math.round(applyDamage(victim, damage));
       if (owner) {
         this.events.onHit?.(owner.id, victim.id, dealt, false);

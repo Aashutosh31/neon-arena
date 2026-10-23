@@ -106,7 +106,12 @@ export class GrenadeManager {
     mesh.scale.setScalar(0.4);
     mesh.renderOrder = 4;
 
-    const light = new THREE.PointLight(0xff7a2f, 7, 16, 2);
+    const light = new THREE.PointLight(
+      0xff7a2f,
+      9,
+      Math.max(16, payload.radius * 2.8),
+      2,
+    );
     light.position.copy(mesh.position);
     this.scene.add(mesh, light);
     this.explosions.push({
@@ -141,7 +146,7 @@ export class GrenadeManager {
         0.4 + explosion.radius * 0.92 * Math.sin(progress * Math.PI * 0.5),
       );
       explosion.material.opacity = (1 - progress) ** 1.6 * 0.85;
-      explosion.light.intensity = (1 - progress) * 7;
+      explosion.light.intensity = (1 - progress) * 9;
       if (progress < 1) {
         continue;
       }
