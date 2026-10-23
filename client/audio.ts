@@ -1,4 +1,5 @@
 import type { WeaponId } from "../shared/types";
+import { WEAPON_ORDER } from "../shared/weapons";
 
 const SAMPLE_RATE = 11025;
 
@@ -40,26 +41,180 @@ function encodeWav(samples: Float32Array): string {
   return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
-function synthShoot(): Float32Array {
-  const duration = 0.14;
-  const length = Math.round(SAMPLE_RATE * duration);
+interface GunshotTone {
+  duration: number;
+  bodyFrequency: number;
+  bodyDrop: number;
+  bodyDecay: number;
+  bodyLevel: number;
+  crackFrequency: number;
+  crackDrop: number;
+  crackDecay: number;
+  crackLevel: number;
+  noiseDecay: number;
+  noiseLevel: number;
+  tailFrequency: number;
+  tailLevel: number;
+  seed: number;
+}
+
+function synthGunshot(tone: GunshotTone): Float32Array {
+  const length = Math.round(SAMPLE_RATE * tone.duration);
   const samples = new Float32Array(length);
   let noise = 0;
-  let seed = 0x1f2e3d4c;
+  let lastWhite = 0;
+  let seed = tone.seed;
 
   for (let i = 0; i < length; i += 1) {
     const t = i / SAMPLE_RATE;
+    const progress = t / tone.duration;
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
     const white = (seed / 0x7fffffff) * 2 - 1;
-    noise = noise * 0.52 + white * 0.48;
-    const sweep = Math.sin(2 * Math.PI * (540 - 410 * (t / duration)) * t);
-    const thump = Math.sin(2 * Math.PI * (105 - 45 * (t / duration)) * t);
+    noise = noise * 0.56 + white * 0.44;
+    const bright = white - lastWhite;
+    lastWhite = white;
+
+    const body =
+      Math.sin(
+        2 * Math.PI * (tone.bodyFrequency - tone.bodyDrop * progress) * t,
+      ) * Math.exp(-tone.bodyDecay * t);
+    const crack =
+      Math.sin(
+        2 * Math.PI * (tone.crackFrequency - tone.crackDrop * progress) * t,
+      ) * Math.exp(-tone.crackDecay * t);
+    const tailTime = Math.max(0, t - 0.08);
+    const tail =
+      t > 0.08
+        ? Math.sin(2 * Math.PI * tone.tailFrequency * tailTime) *
+          Math.exp(-5.5 * tailTime) *
+          tone.tailLevel
+        : 0;
+
     samples[i] =
-      (noise * 0.9 + sweep * 0.58 + thump * 0.5) * Math.exp(-24 * t);
+      body * tone.bodyLevel +
+      crack * tone.crackLevel +
+      bright * tone.crackLevel * 0.32 +
+      noise * Math.exp(-tone.noiseDecay * t) * tone.noiseLevel +
+      tail;
   }
 
   return samples;
 }
+
+const SHOT_TONES: Record<Exclude<WeaponId, "sniper">, GunshotTone> = {
+  smg: {
+    duration: 0.1,
+    bodyFrequency: 195,
+    bodyDrop: 95,
+    bodyDecay: 32,
+    bodyLevel: 0.42,
+    crackFrequency: 2150,
+    crackDrop: 1250,
+    crackDecay: 55,
+    crackLevel: 0.62,
+    noiseDecay: 40,
+    noiseLevel: 0.52,
+    tailFrequency: 120,
+    tailLevel: 0.04,
+    seed: 0x1a2b3c4d,
+  },
+  rifle: {
+    duration: 0.16,
+    bodyFrequency: 125,
+    bodyDrop: 65,
+    bodyDecay: 20,
+    bodyLevel: 0.68,
+    crackFrequency: 1850,
+    crackDrop: 1150,
+    crackDecay: 38,
+    crackLevel: 0.48,
+    noiseDecay: 27,
+    noiseLevel: 0.62,
+    tailFrequency: 94,
+    tailLevel: 0.12,
+    seed: 0x1f2e3d4c,
+  },
+  shotgun: {
+    duration: 0.34,
+    bodyFrequency: 86,
+    bodyDrop: 42,
+    bodyDecay: 10,
+    bodyLevel: 1.05,
+    crackFrequency: 1450,
+    crackDrop: 950,
+    crackDecay: 24,
+    crackLevel: 0.42,
+    noiseDecay: 13,
+    noiseLevel: 0.78,
+    tailFrequency: 58,
+    tailLevel: 0.26,
+    seed: 0x2c4e6a8b,
+  },
+  dmr: {
+    duration: 0.24,
+    bodyFrequency: 112,
+    bodyDrop: 58,
+    bodyDecay: 14,
+    bodyLevel: 0.84,
+    crackFrequency: 2050,
+    crackDrop: 1350,
+    crackDecay: 33,
+    crackLevel: 0.58,
+    noiseDecay: 19,
+    noiseLevel: 0.62,
+    tailFrequency: 82,
+    tailLevel: 0.18,
+    seed: 0x3d5f7a9c,
+  },
+  lmg: {
+    duration: 0.22,
+    bodyFrequency: 96,
+    bodyDrop: 48,
+    bodyDecay: 14,
+    bodyLevel: 0.86,
+    crackFrequency: 1580,
+    crackDrop: 980,
+    crackDecay: 30,
+    crackLevel: 0.44,
+    noiseDecay: 20,
+    noiseLevel: 0.7,
+    tailFrequency: 67,
+    tailLevel: 0.2,
+    seed: 0x4e6a8c9d,
+  },
+  pistol: {
+    duration: 0.13,
+    bodyFrequency: 185,
+    bodyDrop: 95,
+    bodyDecay: 27,
+    bodyLevel: 0.54,
+    crackFrequency: 2250,
+    crackDrop: 1450,
+    crackDecay: 48,
+    crackLevel: 0.66,
+    noiseDecay: 33,
+    noiseLevel: 0.5,
+    tailFrequency: 135,
+    tailLevel: 0.06,
+    seed: 0x5a7b9c1d,
+  },
+  revolver: {
+    duration: 0.25,
+    bodyFrequency: 108,
+    bodyDrop: 56,
+    bodyDecay: 14,
+    bodyLevel: 0.92,
+    crackFrequency: 1950,
+    crackDrop: 1250,
+    crackDecay: 31,
+    crackLevel: 0.6,
+    noiseDecay: 18,
+    noiseLevel: 0.58,
+    tailFrequency: 75,
+    tailLevel: 0.2,
+    seed: 0x6b8c1d2e,
+  },
+};
 
 function synthSniperShot(): Float32Array {
   const duration = 0.62;
@@ -186,33 +341,20 @@ function createAudio(url: string, volume: number): HTMLAudioElement {
   return audio;
 }
 
-const SHOT_RATE: Record<WeaponId, number> = {
-  rifle: 1,
-  smg: 1.18,
-  shotgun: 0.72,
-  sniper: 0.54,
-  dmr: 0.78,
-  lmg: 0.92,
-  pistol: 1.08,
-  revolver: 0.68,
-};
-
 const SHOT_VOLUME: Record<WeaponId, number> = {
-  rifle: 0.4,
-  smg: 0.32,
-  shotgun: 0.5,
-  sniper: 0.52,
-  dmr: 0.44,
-  lmg: 0.42,
-  pistol: 0.36,
-  revolver: 0.48,
+  rifle: 0.46,
+  smg: 0.34,
+  shotgun: 0.56,
+  sniper: 0.6,
+  dmr: 0.48,
+  lmg: 0.45,
+  pistol: 0.38,
+  revolver: 0.52,
 };
 
 export class GameAudio {
-  private readonly shoot: HTMLAudioElement;
-  private readonly sniperShoot: HTMLAudioElement;
-  private readonly remoteShoot: HTMLAudioElement;
-  private readonly remoteSniperShoot: HTMLAudioElement;
+  private readonly localShots = new Map<WeaponId, HTMLAudioElement>();
+  private readonly remoteShots = new Map<WeaponId, HTMLAudioElement>();
   private readonly hit: HTMLAudioElement;
   private readonly headshot: HTMLAudioElement;
   private readonly death: HTMLAudioElement;
@@ -224,14 +366,16 @@ export class GameAudio {
   private readonly pickup: HTMLAudioElement;
 
   constructor() {
-    const shootUrl = encodeWav(synthShoot());
-    this.shoot = createAudio(shootUrl, 0.22);
-    this.sniperShoot = createAudio(encodeWav(synthSniperShot()), 0.68);
-    this.remoteShoot = createAudio(shootUrl, 0.18);
-    this.remoteSniperShoot = createAudio(
-      encodeWav(synthSniperShot()),
-      0.36,
-    );
+    for (const weapon of WEAPON_ORDER) {
+      const samples =
+        weapon === "sniper"
+          ? synthSniperShot()
+          : synthGunshot(SHOT_TONES[weapon]);
+      const url = encodeWav(samples);
+      const volume = SHOT_VOLUME[weapon];
+      this.localShots.set(weapon, createAudio(url, volume));
+      this.remoteShots.set(weapon, createAudio(url, volume * 0.56));
+    }
     this.hit = createAudio(encodeWav(synthHit()), 0.25);
     this.headshot = createAudio(encodeWav(synthHit()), 0.3);
     this.headshot.playbackRate = 1.3;
@@ -246,22 +390,21 @@ export class GameAudio {
   }
 
   playShoot(weapon: WeaponId): void {
-    if (weapon === "sniper") {
-      this.play(this.sniperShoot);
+    const shot = this.localShots.get(weapon);
+    if (!shot) {
       return;
     }
-    this.shoot.volume = SHOT_VOLUME[weapon];
-    this.shoot.playbackRate = SHOT_RATE[weapon];
-    this.play(this.shoot);
+    shot.playbackRate = 0.96 + Math.random() * 0.08;
+    this.play(shot);
   }
 
   playRemoteShoot(weapon: WeaponId): void {
-    if (weapon === "sniper") {
-      this.play(this.remoteSniperShoot);
+    const shot = this.remoteShots.get(weapon);
+    if (!shot) {
       return;
     }
-    this.remoteShoot.playbackRate = SHOT_RATE[weapon];
-    this.play(this.remoteShoot);
+    shot.playbackRate = 0.95 + Math.random() * 0.1;
+    this.play(shot);
   }
 
   playHit(headshot = false): void {

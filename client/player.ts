@@ -152,12 +152,24 @@ export class Player {
   }
 }
 
+interface GunPart {
+  object: THREE.Object3D;
+  restPosition: THREE.Vector3;
+  restRotation: THREE.Euler;
+  positionKick: THREE.Vector3;
+  rotationKick: THREE.Vector3;
+  amount: number;
+}
+
 interface GunModel {
   group: THREE.Group;
-  flash: THREE.Mesh;
+  flash: THREE.Group;
   basePosition: THREE.Vector3;
   adsPosition: THREE.Vector3;
   accentMaterial: THREE.MeshStandardMaterial;
+  parts: GunPart[];
+  flashScale: number;
+  flashDuration: number;
 }
 
 export class Gun {
@@ -245,22 +257,44 @@ export class Gun {
     }
     const spec = WEAPONS[this.current];
     this.recoil = Math.max(this.recoil, spec.recoil);
-    this.flashRemaining = 0.055;
     const model = this.models.get(this.current);
-    if (model) {
-      model.flash.visible = true;
-      model.flash.rotation.z = Math.random() * Math.PI;
-      model.flash.scale.setScalar(0.8 + Math.random() * 0.55);
+    if (!model) {
+      return;
+    }
+    this.flashRemaining = model.flashDuration;
+    model.flash.visible = true;
+    model.flash.rotation.z = Math.random() * Math.PI * 2;
+    model.flash.scale.setScalar(
+      model.flashScale * (0.82 + Math.random() * 0.5),
+    );
+    for (const part of model.parts) {
+      part.amount = 1;
     }
   }
 
   update(delta: number): void {
     const model = this.models.get(this.current);
-    this.recoil = THREE.MathUtils.damp(this.recoil, 0, 18, delta);
+    this.recoil = THREE.MathUtils.damp(this.recoil, 0, 22, delta);
     if (this.flashRemaining > 0) {
       this.flashRemaining -= delta;
       if (this.flashRemaining <= 0 && model) {
         model.flash.visible = false;
+      }
+    }
+    if (model) {
+      for (const part of model.parts) {
+        if (part.amount <= 0) {
+          continue;
+        }
+        part.amount = THREE.MathUtils.damp(part.amount, 0, 30, delta);
+        part.object.position
+          .copy(part.restPosition)
+          .addScaledVector(part.positionKick, part.amount);
+        part.object.rotation.set(
+          part.restRotation.x + part.rotationKick.x * part.amount,
+          part.restRotation.y + part.rotationKick.y * part.amount,
+          part.restRotation.z + part.rotationKick.z * part.amount,
+        );
       }
     }
 
@@ -301,14 +335,14 @@ export class Gun {
     );
     this.object.position.z = THREE.MathUtils.lerp(
       this.object.position.z,
-      targetZ + this.recoil * 0.11,
+      targetZ + this.recoil * 0.15,
       blend,
     );
 
     this.euler.set(
-      this.recoil * 0.16 - reloadDip * 0.8,
+      this.recoil * 0.21 - reloadDip * 0.8,
       this.aiming ? 0 : -0.055,
-      this.aiming ? 0 : -0.02,
+      this.aiming ? 0 : -0.02 - this.recoil * 0.025,
     );
     this.object.quaternion.setFromEuler(this.euler);
   }
@@ -343,17 +377,57 @@ export class Gun {
       return mesh;
     };
 
+    const parts: GunPart[] = [];
+    const addPart = (
+      object: THREE.Object3D,
+      positionKick = new THREE.Vector3(),
+      rotationKick = new THREE.Vector3(),
+    ): void => {
+      parts.push({
+        object,
+        restPosition: object.position.clone(),
+        restRotation: object.rotation.clone(),
+        positionKick,
+        rotationKick,
+        amount: 0,
+      });
+    };
+
     if (weapon === "pistol") {
       addBox(0.1, 0.13, 0.34, 0, 0, -0.12, this.darkMaterial);
       addBox(0.085, 0.24, 0.12, 0, -0.16, 0.03, this.gripMaterial);
       addBox(0.06, 0.035, 0.18, 0, 0.09, -0.14, accentMaterial);
       addBox(0.04, 0.04, 0.08, 0, 0.02, -0.31, this.darkMaterial);
+      const slide = addBox(
+        0.112,
+        0.06,
+        0.3,
+        0,
+        0.07,
+        -0.14,
+        this.darkMaterial,
+      );
+      addPart(slide, new THREE.Vector3(0, 0, 0.06));
     } else if (weapon === "revolver") {
       addBox(0.12, 0.14, 0.38, 0, 0, -0.16, this.darkMaterial);
       addBox(0.14, 0.14, 0.17, 0, -0.01, -0.07, this.gripMaterial);
       addBox(0.09, 0.25, 0.13, 0, -0.17, 0.04, this.gripMaterial);
       addBox(0.06, 0.06, 0.28, 0, 0.01, -0.42, this.darkMaterial);
       addBox(0.045, 0.03, 0.22, 0, 0.09, -0.19, accentMaterial);
+      const hammer = addBox(
+        0.035,
+        0.085,
+        0.04,
+        0,
+        -0.005,
+        0.11,
+        this.gripMaterial,
+      );
+      addPart(
+        hammer,
+        new THREE.Vector3(),
+        new THREE.Vector3(-0.42, 0, 0),
+      );
     } else if (weapon === "dmr") {
       addBox(0.12, 0.14, 0.74, 0, 0, -0.22, this.darkMaterial);
       addBox(0.055, 0.055, 0.54, 0, 0.01, -0.86, this.gripMaterial);
@@ -362,13 +436,40 @@ export class Gun {
       addBox(0.09, 0.09, 0.34, 0, 0.14, -0.24, this.darkMaterial);
       addBox(0.075, 0.075, 0.035, 0, 0.14, -0.42, accentMaterial);
       addBox(0.05, 0.03, 0.24, 0, 0.09, -0.09, accentMaterial);
+      const bolt = addBox(
+        0.035,
+        0.04,
+        0.14,
+        0.085,
+        0.035,
+        0.02,
+        accentMaterial,
+      );
+      addPart(
+        bolt,
+        new THREE.Vector3(0, 0, 0.07),
+        new THREE.Vector3(0, 0, 0.22),
+      );
     } else if (weapon === "lmg") {
       addBox(0.18, 0.18, 0.68, 0, 0, -0.2, this.darkMaterial);
       addBox(0.06, 0.06, 0.5, 0, 0.01, -0.78, this.gripMaterial);
       addBox(0.19, 0.22, 0.23, 0, -0.15, -0.08, this.darkMaterial);
       addBox(0.11, 0.19, 0.18, 0, -0.16, 0.02, this.gripMaterial);
       addBox(0.1, 0.14, 0.3, 0, -0.04, 0.3, this.darkMaterial);
-      addBox(0.07, 0.035, 0.36, 0, 0.11, -0.18, accentMaterial);
+      const topRail = addBox(
+        0.07,
+        0.035,
+        0.36,
+        0,
+        0.11,
+        -0.18,
+        accentMaterial,
+      );
+      addPart(
+        topRail,
+        new THREE.Vector3(0, 0.018, 0),
+        new THREE.Vector3(-0.2, 0, 0),
+      );
       addBox(0.04, 0.1, 0.06, 0, 0.15, -0.44, this.darkMaterial);
     } else if (weapon === "shotgun") {
       addBox(0.14, 0.15, 0.7, 0, 0, -0.18, this.darkMaterial);
@@ -376,6 +477,16 @@ export class Gun {
       addBox(0.11, 0.2, 0.16, 0, -0.15, -0.05, this.gripMaterial);
       addBox(0.07, 0.12, 0.26, 0, -0.13, 0.22, this.darkMaterial);
       addBox(0.05, 0.04, 0.28, 0, 0.1, -0.3, accentMaterial);
+      const pump = addBox(
+        0.1,
+        0.08,
+        0.24,
+        0,
+        -0.075,
+        -0.54,
+        this.gripMaterial,
+      );
+      addPart(pump, new THREE.Vector3(0, 0, 0.11));
     } else if (weapon === "sniper") {
       addBox(0.12, 0.14, 0.8, 0, 0, -0.26, this.darkMaterial);
       addBox(0.055, 0.055, 0.62, 0, 0.01, -0.83, this.gripMaterial);
@@ -384,6 +495,20 @@ export class Gun {
       addBox(0.07, 0.07, 0.3, 0, 0.13, -0.25, this.darkMaterial);
       addBox(0.045, 0.045, 0.16, 0, 0.13, -0.45, accentMaterial);
       addBox(0.1, 0.03, 0.2, 0, 0.1, -0.1, accentMaterial);
+      const bolt = addBox(
+        0.035,
+        0.04,
+        0.16,
+        0.085,
+        0.035,
+        0.03,
+        accentMaterial,
+      );
+      addPart(
+        bolt,
+        new THREE.Vector3(0, 0, 0.085),
+        new THREE.Vector3(0, 0, 0.38),
+      );
     } else {
       const long = weapon === "rifle" ? 0.62 : 0.48;
       addBox(0.12, 0.15, long, 0, 0, -0.2, this.darkMaterial);
@@ -392,24 +517,56 @@ export class Gun {
       addBox(0.08, 0.12, 0.24, 0, -0.08, 0.26, this.darkMaterial);
       addBox(0.055, 0.035, long * 0.42, 0, 0.1, -0.24, accentMaterial);
       addBox(0.04, 0.06, 0.06, 0, 0.13, -0.1, this.darkMaterial);
+      const chargingHandle = addBox(
+        0.03,
+        0.045,
+        0.11,
+        0.078,
+        0.025,
+        -0.03,
+        accentMaterial,
+      );
+      addPart(
+        chargingHandle,
+        new THREE.Vector3(0, 0, 0.065),
+        new THREE.Vector3(0, 0, 0.16),
+      );
       if (weapon === "smg") {
         addBox(0.03, 0.03, 0.18, 0.075, 0.02, -0.2, accentMaterial);
       }
     }
 
-    const flash = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.18, 0.18),
-      new THREE.MeshBasicMaterial({
-        color: 0xffd27a,
-        transparent: true,
-        opacity: 0.92,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
+    const flashColor = new THREE.Color(spec.accent).lerp(
+      new THREE.Color(0xffd27a),
+      0.58,
     );
+    const flashMaterial = new THREE.MeshBasicMaterial({
+      color: flashColor,
+      transparent: true,
+      opacity: 0.94,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const flash = new THREE.Group();
+    const flashCore = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.17, 0.17),
+      flashMaterial,
+    );
+    const flashWide = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.075),
+      flashMaterial,
+    );
+    const flashTall = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.075, 0.3),
+      flashMaterial,
+    );
+    for (const flare of [flashCore, flashWide, flashTall]) {
+      flare.renderOrder = 10;
+      flash.add(flare);
+    }
     const flashZ =
       weapon === "pistol" || weapon === "revolver"
         ? -0.52
@@ -420,7 +577,6 @@ export class Gun {
             : -0.78;
     flash.position.set(0, 0.01, flashZ);
     flash.visible = false;
-    flash.renderOrder = 10;
     group.add(flash);
 
     const glove = new THREE.Mesh(
@@ -433,13 +589,62 @@ export class Gun {
     const basePosition =
       weapon === "pistol"
         ? new THREE.Vector3(0.28, -0.23, -0.48)
-        : new THREE.Vector3(0.25, -0.22, -0.56);
+        : weapon === "revolver"
+          ? new THREE.Vector3(0.27, -0.22, -0.5)
+          : weapon === "shotgun"
+            ? new THREE.Vector3(0.26, -0.23, -0.54)
+            : weapon === "lmg"
+              ? new THREE.Vector3(0.27, -0.24, -0.58)
+              : weapon === "sniper"
+                ? new THREE.Vector3(0.24, -0.21, -0.56)
+                : new THREE.Vector3(0.25, -0.22, -0.56);
     const adsPosition =
       weapon === "sniper"
         ? new THREE.Vector3(0, -0.145, -0.34)
         : new THREE.Vector3(0, -0.17, -0.42);
+    const flashScale =
+      weapon === "shotgun"
+        ? 1.5
+        : weapon === "sniper"
+          ? 1.3
+          : weapon === "lmg"
+            ? 1.18
+            : weapon === "dmr"
+              ? 1.1
+              : weapon === "revolver"
+                ? 0.78
+                : weapon === "pistol"
+                  ? 0.64
+                  : weapon === "smg"
+                    ? 0.82
+                    : 1;
+    const flashDuration =
+      weapon === "sniper"
+        ? 0.095
+        : weapon === "shotgun"
+          ? 0.085
+          : weapon === "revolver"
+            ? 0.075
+            : weapon === "dmr"
+              ? 0.07
+              : weapon === "lmg"
+                ? 0.06
+                : weapon === "pistol"
+                  ? 0.045
+                  : weapon === "smg"
+                    ? 0.04
+                    : 0.055;
 
     group.position.copy(basePosition);
-    return { group, flash, basePosition, adsPosition, accentMaterial };
+    return {
+      group,
+      flash,
+      basePosition,
+      adsPosition,
+      accentMaterial,
+      parts,
+      flashScale,
+      flashDuration,
+    };
   }
 }

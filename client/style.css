@@ -568,6 +568,16 @@ body.playing #hud {
   min-width: 220px;
 }
 
+#weapon-category {
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 #weapon-name {
   text-transform: uppercase;
   color: var(--muted);
@@ -635,29 +645,63 @@ body.playing #hud {
 
 #weapon-slots {
   display: flex;
-  gap: 5px;
+  gap: 4px;
   margin-top: 7px;
   pointer-events: auto;
 }
 
 .weapon-slot {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
-  min-width: 46px;
-  height: 24px;
-  padding: 0 6px;
+  min-width: 60px;
+  height: 35px;
+  padding: 4px 5px;
   border: 1px solid rgba(88, 220, 255, 0.16);
   background: rgba(5, 12, 20, 0.66);
   color: rgba(233, 248, 255, 0.54);
-  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+  text-align: left;
 }
 
-.weapon-slot span {
+.weapon-slot-key {
+  flex: none;
+  margin-top: 1px;
   font-family: var(--mono);
+  font-size: 7px;
   color: rgba(126, 151, 169, 0.7);
+}
+
+.weapon-slot-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weapon-slot-category {
+  overflow: hidden;
+  max-width: 100%;
+  color: rgba(150, 178, 198, 0.84);
+  font-family: var(--mono);
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.weapon-slot strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 9.5px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weapon-slot.active {
@@ -666,7 +710,9 @@ body.playing #hud {
   box-shadow: inset 0 -2px 0 var(--weapon-accent, var(--cyan));
 }
 
-.weapon-slot.active span {
+.weapon-slot.active .weapon-slot-key,
+.weapon-slot.active .weapon-slot-category,
+.weapon-slot.active strong {
   color: var(--weapon-accent, var(--cyan));
 }
 

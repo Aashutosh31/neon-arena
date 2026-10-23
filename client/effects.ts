@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { spreadDirection } from "../shared/combat";
 import type { GameMode, TeamId, WeaponId } from "../shared/types";
+import { WEAPONS } from "../shared/weapons";
 import type { GameAudio } from "./audio";
 import type { RemoteManager } from "./remotes";
 
@@ -34,6 +36,7 @@ export class CombatEffects {
   private readonly shotUp = new THREE.Vector3();
   private readonly shotOrigin = new THREE.Vector3();
   private readonly tracerEnd = new THREE.Vector3();
+  private readonly pelletDirection = new THREE.Vector3();
   private readonly remoteOrigin = new THREE.Vector3();
   private readonly remoteDirection = new THREE.Vector3();
   private readonly remoteEnd = new THREE.Vector3();
@@ -162,6 +165,35 @@ export class CombatEffects {
     remotes: RemoteManager,
     weapon: WeaponId,
   ): void {
+    const spec = WEAPONS[weapon];
+    if (spec.pellets > 1) {
+      const count = Math.min(spec.pellets, 6);
+      for (let pellet = 0; pellet < count; pellet += 1) {
+        const spread = spreadDirection(
+          { x: direction.x, y: direction.y, z: direction.z },
+          spec.spreadRad * 0.75,
+        );
+        this.pelletDirection.set(spread.x, spread.y, spread.z);
+        this.raycaster.set(origin, this.pelletDirection);
+        const hits = this.raycaster.intersectObjects(
+          remotes.hittableTargets,
+          true,
+        );
+        if (hits.length > 0) {
+          const hit = hits[0];
+          this.tracerEnd.copy(hit.point);
+          this.setImpactNormal(hit, this.pelletDirection);
+          this.spawnSparks(hit.point, this.normal, 1);
+        } else {
+          this.tracerEnd
+            .copy(origin)
+            .addScaledVector(this.pelletDirection, TRACER_RANGE * 0.5);
+        }
+        this.spawnTracer(origin, this.tracerEnd);
+      }
+      return;
+    }
+
     this.raycaster.set(origin, direction);
     const hits = this.raycaster.intersectObjects(
       remotes.hittableTargets,

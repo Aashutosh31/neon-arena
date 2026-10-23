@@ -16,7 +16,11 @@ import type {
   PlayerState,
   WeaponId,
 } from "../shared/types";
-import { WEAPONS, WEAPON_ORDER } from "../shared/weapons";
+import {
+  WEAPON_CATEGORIES,
+  WEAPONS,
+  WEAPON_ORDER,
+} from "../shared/weapons";
 
 function byId<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -79,6 +83,8 @@ export class Hud {
   private readonly ffaStatus = byId<HTMLDivElement>("ffa-status");
   private readonly scoreboardRows = byId<HTMLDivElement>("scoreboard-rows");
   private readonly killFeed = byId<HTMLDivElement>("kill-feed");
+  private readonly weaponCategory =
+    byId<HTMLDivElement>("weapon-category");
   private readonly weaponName = byId<HTMLDivElement>("weapon-name");
   private readonly ammoCurrent = byId<HTMLSpanElement>("ammo-current");
   private readonly ammoReserve = byId<HTMLSpanElement>("ammo-reserve");
@@ -111,6 +117,7 @@ export class Hud {
   private scoreboardSignature = "";
   private lastAmmoText = "";
   private lastWeaponText = "";
+  private lastWeaponCategory = "";
   private lastReloadText = "";
   private hitMarkerTimeout = 0;
   private damageFlashTimeout = 0;
@@ -443,11 +450,23 @@ export class Hud {
     reloading: boolean,
   ): void {
     const spec = WEAPONS[weapon];
-    if (spec.name !== this.lastWeaponText) {
+    const category = WEAPON_CATEGORIES[spec.category];
+    const weaponChanged = spec.name !== this.lastWeaponText;
+    const categoryChanged = category.label !== this.lastWeaponCategory;
+    if (weaponChanged) {
       this.lastWeaponText = spec.name;
       if (this.weaponName) {
         this.weaponName.textContent = spec.name;
       }
+    }
+    if (categoryChanged) {
+      this.lastWeaponCategory = category.label;
+      if (this.weaponCategory) {
+        this.weaponCategory.textContent = category.label;
+      }
+    }
+    if (this.weaponCategory && (weaponChanged || categoryChanged)) {
+      this.weaponCategory.style.color = spec.hudColor;
     }
     const ammoText = `${ammo}|${reserve}`;
     if (ammoText !== this.lastAmmoText) {
@@ -805,16 +824,30 @@ export class Hud {
     const fragment = document.createDocumentFragment();
     for (const weapon of weapons) {
       const spec = WEAPONS[weapon];
+      const category = WEAPON_CATEGORIES[spec.category];
       const button = document.createElement("button");
       button.type = "button";
       button.className = "weapon-slot";
       button.dataset.weapon = weapon;
+      button.dataset.category = spec.category;
       button.style.setProperty("--weapon-accent", spec.hudColor);
+      button.title = `${category.label} · ${spec.name}`;
+      button.setAttribute(
+        "aria-label",
+        `Slot ${spec.slot}, ${category.label}, ${spec.name}`,
+      );
       const number = document.createElement("span");
+      number.className = "weapon-slot-key";
       number.textContent = `${spec.slot}`;
+      const copy = document.createElement("span");
+      copy.className = "weapon-slot-copy";
+      const label = document.createElement("em");
+      label.className = "weapon-slot-category";
+      label.textContent = category.label;
       const name = document.createElement("strong");
       name.textContent = spec.shortName;
-      button.append(number, name);
+      copy.append(label, name);
+      button.append(number, copy);
       button.addEventListener("click", (event) => {
         event.stopPropagation();
         onSelect(weapon);
