@@ -246,6 +246,34 @@ body.playing #hud {
   letter-spacing: 0.08em;
 }
 
+#compass {
+  display: none;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid rgba(88, 220, 255, 0.18);
+  background: rgba(4, 12, 20, 0.58);
+  white-space: nowrap;
+}
+
+#compass-cardinal {
+  min-width: 12px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+#compass-degrees {
+  color: rgba(177, 203, 219, 0.78);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 #connection-status,
 #ping {
   font-family: var(--mono);
@@ -1376,76 +1404,170 @@ body.touch.playing #touch-pause {
   pointer-events: none;
 }
 
-.touch-actions {
+#touch-move::before {
+  content: "";
+  position: absolute;
+  inset: 13%;
+  border: 1px dashed rgba(75, 225, 255, 0.16);
+  border-radius: 50%;
+  box-shadow: inset 0 0 24px rgba(75, 225, 255, 0.08);
+}
+
+.touch-combat,
+.touch-weapon-dock,
+.touch-utility {
   position: fixed;
-  right: max(20px, env(safe-area-inset-right));
-  bottom: max(24px, env(safe-area-inset-bottom));
   z-index: 3;
-  display: grid;
-  grid-template-columns: repeat(3, 56px);
-  grid-template-rows: 52px 76px;
-  gap: 8px;
-  align-items: end;
-  justify-items: center;
   pointer-events: none;
 }
 
-.touch-button {
-  border: 1px solid rgba(75, 225, 255, 0.4);
-  border-radius: 50%;
-  background: rgba(4, 15, 24, 0.66);
-  color: var(--cyan);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  pointer-events: auto;
-  touch-action: none;
-}
-
-.touch-button:active {
-  background: rgba(75, 225, 255, 0.2);
-}
-
-.touch-button.fire {
-  grid-column: 3;
-  grid-row: 2;
-  align-self: center;
-  width: 82px;
-  height: 82px;
-  border-color: rgba(255, 138, 91, 0.6);
-  background: rgba(70, 25, 12, 0.64);
-  color: var(--ember);
-  font-size: 11px;
-}
-
-.touch-button.small {
-  width: 54px;
-  height: 54px;
+.touch-combat {
+  display: grid;
+  grid-template-columns: var(--action-size, 52px) var(--fire-size, 74px);
+  grid-template-rows: var(--action-size, 52px) var(--action-size, 52px);
+  gap: var(--control-gap, 8px);
+  align-items: center;
+  justify-items: center;
 }
 
 #touch-ads {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
 }
 
 #touch-jump {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 2;
 }
 
-#touch-reload {
+.touch-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(75, 225, 255, 0.4);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 34% 28%,
+      rgba(88, 221, 255, 0.14),
+      rgba(4, 15, 24, 0.72) 68%
+    );
+  color: var(--cyan);
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-button:active {
+  background: rgba(75, 225, 255, 0.24);
+  transform: scale(0.94);
+}
+
+.touch-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.touch-button.combat {
+  width: var(--action-size, 52px);
+  height: var(--action-size, 52px);
+  border-color: rgba(88, 220, 255, 0.28);
+  color: rgba(167, 234, 255, 0.92);
+}
+
+.touch-button.fire {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: var(--fire-size, 74px);
+  height: var(--fire-size, 74px);
+  border-color: rgba(255, 138, 91, 0.66);
+  background:
+    radial-gradient(
+      circle at 34% 28%,
+      rgba(255, 167, 112, 0.24),
+      rgba(70, 25, 12, 0.74) 68%
+    );
+  color: var(--ember);
+  box-shadow:
+    inset 0 0 22px rgba(255, 122, 47, 0.14),
+    0 0 18px rgba(255, 122, 47, 0.08);
 }
 
-#touch-switch {
-  grid-column: 1;
-  grid-row: 1;
+.touch-button.fire .touch-icon {
+  width: 30px;
+  height: 30px;
+  stroke-width: 1.7;
 }
 
-#touch-scope {
-  grid-column: 3;
-  grid-row: 1;
+.touch-button.weapon {
+  width: var(--weapon-size, 40px);
+  height: var(--weapon-size, 40px);
+  border-radius: 10px;
+  border-color: rgba(88, 220, 255, 0.24);
+  background: rgba(5, 16, 26, 0.76);
+  color: rgba(173, 235, 255, 0.9);
+}
+
+.touch-button.weapon .touch-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.touch-weapon-dock {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(88, 220, 255, 0.18);
+  border-radius: 13px;
+  background: rgba(3, 10, 17, 0.58);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.22);
+}
+
+.touch-button.utility {
+  width: var(--utility-size, 46px);
+  height: var(--utility-size, 46px);
+  border-color: rgba(102, 255, 178, 0.42);
+  color: #8dffd0;
+}
+
+#touch-grenade {
+  border-color: rgba(255, 138, 91, 0.52);
+  color: var(--ember);
+}
+
+.touch-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid rgba(88, 220, 255, 0.35);
+  border-radius: 9px;
+  background: rgba(3, 10, 17, 0.94);
+  color: #e9f8ff;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+}
+
+#touch-grenade .touch-badge {
+  border-color: rgba(255, 138, 91, 0.45);
+  color: var(--ember);
+}
+
+#touch-pause .touch-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.2;
 }
 
 body.touch #lock-hint,
@@ -1656,23 +1778,6 @@ body.touch .touch-hint {
     width: 44px;
     height: 44px;
   }
-
-  .touch-actions {
-    grid-template-columns: repeat(3, 48px);
-    grid-template-rows: 52px 70px;
-    gap: 6px;
-  }
-
-  .touch-button.small {
-    width: 46px;
-    height: 46px;
-    font-size: 8px;
-  }
-
-  .touch-button.fire {
-    width: 66px;
-    height: 66px;
-  }
 }
 
 @media (max-height: 640px) and (orientation: landscape) {
@@ -1797,28 +1902,14 @@ body.touch .touch-hint {
 
 .touch-utility {
   display: none;
-  position: fixed;
   left: max(14px, env(safe-area-inset-left));
   bottom: max(200px, calc(env(safe-area-inset-bottom) + 196px));
-  z-index: 3;
-  gap: 6px;
-  pointer-events: none;
+  gap: 8px;
+  align-items: center;
 }
 
 body.touch.playing .touch-utility {
   display: flex;
-}
-
-.touch-utility .touch-button {
-  width: 62px;
-  height: 42px;
-  border-radius: 10px;
-  font-size: 8px;
-}
-
-#touch-grenade {
-  border-color: rgba(255, 122, 47, 0.45);
-  color: var(--ember);
 }
 
 body.touch #utility-bar {
@@ -2023,9 +2114,12 @@ body.touch.portrait #orientation-gate {
     --touch-bottom: max(12px, calc(env(safe-area-inset-bottom) + 6px));
     --touch-top: max(8px, calc(env(safe-area-inset-top) + 2px));
     --stick-size: clamp(96px, 26vh, 118px);
-    --action-size: clamp(44px, 12vh, 54px);
-    --fire-size: clamp(64px, 17vh, 78px);
-    --minimap-size: clamp(88px, 25vh, 118px);
+    --action-size: clamp(44px, 12vh, 52px);
+    --fire-size: clamp(66px, 18vh, 82px);
+    --utility-size: clamp(42px, 11vh, 50px);
+    --weapon-size: clamp(36px, 9.5vh, 42px);
+    --control-gap: clamp(6px, 1.4vh, 9px);
+    --minimap-size: clamp(100px, 27vh, 126px);
     --hud-left: calc(var(--touch-left) + var(--stick-size) + 12px);
     --hud-bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
   }
@@ -2066,6 +2160,10 @@ body.touch.portrait #orientation-gate {
     font-size: 11px;
   }
 
+  body.touch.landscape #compass {
+    display: flex;
+  }
+
   body.touch.landscape #touch-pause {
     top: var(--touch-top);
     right: var(--touch-right);
@@ -2104,50 +2202,35 @@ body.touch.portrait #orientation-gate {
     height: 42%;
   }
 
-  body.touch.landscape .touch-actions {
+  body.touch.landscape .touch-combat {
     right: var(--touch-right);
     bottom: var(--touch-bottom);
-    grid-template-columns: repeat(3, var(--action-size));
-    grid-template-rows: var(--action-size) var(--fire-size);
-    gap: clamp(5px, 1.4vh, 8px);
+    gap: var(--control-gap);
   }
 
-  body.touch.landscape .touch-button.small {
-    width: var(--action-size);
-    height: var(--action-size);
-    font-size: 8px;
-  }
-
-  body.touch.landscape .touch-button.fire {
-    width: var(--fire-size);
-    height: var(--fire-size);
-    font-size: 10px;
+  body.touch.landscape .touch-weapon-dock {
+    left: 50%;
+    bottom: var(--hud-bottom);
+    transform: translateX(-50%);
   }
 
   body.touch.landscape #health-bar {
     left: var(--hud-left);
     bottom: var(--hud-bottom);
-    width: clamp(150px, 24vw, 210px);
+    width: clamp(150px, 20vw, 190px);
     height: 16px;
   }
 
   body.touch.landscape #armor-bar {
     left: var(--hud-left);
     bottom: calc(var(--hud-bottom) + 20px);
-    width: clamp(150px, 24vw, 210px);
+    width: clamp(150px, 20vw, 190px);
     height: 10px;
   }
 
   body.touch.landscape .touch-utility {
-    left: calc(var(--touch-left) + var(--stick-size) + 8px);
-    bottom: calc(var(--hud-bottom) + 42px);
-    gap: 5px;
-  }
-
-  body.touch.landscape .touch-utility .touch-button {
-    width: clamp(50px, 14vh, 62px);
-    height: clamp(30px, 8vh, 38px);
-    border-radius: 8px;
+    left: var(--hud-left);
+    bottom: calc(var(--hud-bottom) + 56px);
   }
 
   body.touch.landscape #ammo-panel {
@@ -2185,8 +2268,10 @@ body.touch.portrait #orientation-gate {
   body.touch.landscape {
     --stick-size: 88px;
     --action-size: 42px;
-    --fire-size: 60px;
-    --minimap-size: 76px;
+    --fire-size: 62px;
+    --utility-size: 38px;
+    --weapon-size: 34px;
+    --minimap-size: 82px;
     --touch-top: max(6px, calc(env(safe-area-inset-top) + 1px));
     --hud-bottom: max(14px, calc(env(safe-area-inset-bottom) + 8px));
   }
@@ -2222,8 +2307,7 @@ body.touch.portrait #orientation-gate {
     height: 9px;
   }
 
-  body.touch.landscape .touch-utility .touch-button {
-    width: 48px;
-    height: 28px;
+  body.touch.landscape .touch-weapon-dock {
+    bottom: 48px;
   }
 }

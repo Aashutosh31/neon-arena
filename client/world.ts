@@ -40,7 +40,7 @@ export function createWorld(
   scene.fog = new THREE.Fog(0x060a12, 55, 180);
 
   const camera = new THREE.PerspectiveCamera(
-    75,
+    mobile ? 80 : 75,
     window.innerWidth / window.innerHeight,
     0.1,
     260,

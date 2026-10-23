@@ -40,6 +40,8 @@ export class InputManager {
     document.querySelector<HTMLButtonElement>("#touch-switch");
   private readonly scopeButton =
     document.querySelector<HTMLButtonElement>("#touch-scope");
+  private readonly turnButton =
+    document.querySelector<HTMLButtonElement>("#touch-turn");
   private readonly grenadeButton =
     document.querySelector<HTMLButtonElement>("#touch-grenade");
   private readonly medkitButton =
@@ -49,6 +51,11 @@ export class InputManager {
   private lookPointer: number | null = null;
   private lookLastX = 0;
   private lookLastY = 0;
+  private lookTapAt = 0;
+  private lookTapX = 0;
+  private lookTapY = 0;
+  private lookTapMoved = false;
+  private quickTurnRequested = false;
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
@@ -87,6 +94,9 @@ export class InputManager {
     });
     this.bindPress(this.scopeButton, () => {
       this.scopeRequested = true;
+    });
+    this.bindPress(this.turnButton, () => {
+      this.quickTurnRequested = true;
     });
     this.bindPress(this.grenadeButton, () => {
       this.grenadeRequested = true;
@@ -256,6 +266,26 @@ export class InputManager {
     if (!this.enabled || this.lookPointer !== null) {
       return;
     }
+    if (event.pointerType === "touch") {
+      const now = performance.now();
+      const distance = Math.hypot(
+        event.clientX - this.lookTapX,
+        event.clientY - this.lookTapY,
+      );
+      if (
+        now - this.lookTapAt <= 300 &&
+        !this.lookTapMoved &&
+        distance <= 44
+      ) {
+        this.quickTurnRequested = true;
+        this.lookTapAt = 0;
+      } else {
+        this.lookTapAt = now;
+        this.lookTapX = event.clientX;
+        this.lookTapY = event.clientY;
+        this.lookTapMoved = false;
+      }
+    }
     this.lookPointer = event.pointerId;
     this.lookLastX = event.clientX;
     this.lookLastY = event.clientY;
@@ -265,6 +295,14 @@ export class InputManager {
   private onLookMove = (event: PointerEvent): void => {
     if (event.pointerId !== this.lookPointer) {
       return;
+    }
+    if (
+      Math.hypot(
+        event.clientX - this.lookTapX,
+        event.clientY - this.lookTapY,
+      ) > 12
+    ) {
+      this.lookTapMoved = true;
     }
     this.lookX += event.clientX - this.lookLastX;
     this.lookY += event.clientY - this.lookLastY;
@@ -355,6 +393,12 @@ export class InputManager {
     return delta;
   }
 
+  consumeQuickTurn(): boolean {
+    const requested = this.quickTurnRequested;
+    this.quickTurnRequested = false;
+    return requested;
+  }
+
   consumeReload(): boolean {
     const requested = this.reloadRequested;
     this.reloadRequested = false;
@@ -401,6 +445,9 @@ export class InputManager {
     this.lookY = 0;
     this.movePointer = null;
     this.lookPointer = null;
+    this.lookTapAt = 0;
+    this.lookTapMoved = false;
+    this.quickTurnRequested = false;
     this.reloadRequested = false;
     this.switchRequested = false;
     this.scopeRequested = false;

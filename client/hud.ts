@@ -26,6 +26,17 @@ function byId<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
 
+const COMPASS_POINTS = [
+  "N",
+  "NE",
+  "E",
+  "SE",
+  "S",
+  "SW",
+  "W",
+  "NW",
+] as const;
+
 export interface MenuActions {
   offlineTdm: () => void;
   offlineFfa: () => void;
@@ -55,6 +66,10 @@ export class Hud {
     byId<HTMLDivElement>("match-over-subtitle");
   private readonly connection = byId<HTMLDivElement>("connection-status");
   private readonly ping = byId<HTMLDivElement>("ping");
+  private readonly compassCardinal =
+    byId<HTMLSpanElement>("compass-cardinal");
+  private readonly compassDegrees =
+    byId<HTMLSpanElement>("compass-degrees");
   private readonly crosshair = byId<HTMLDivElement>("crosshair");
   private readonly scope = byId<HTMLDivElement>("scope");
   private readonly scopeZoom = byId<HTMLDivElement>("scope-zoom");
@@ -72,6 +87,10 @@ export class Hud {
     byId<HTMLButtonElement>("touch-medkit");
   private readonly touchGrenade =
     byId<HTMLButtonElement>("touch-grenade");
+  private readonly touchMedkitCount =
+    byId<HTMLSpanElement>("touch-medkit-count");
+  private readonly touchGrenadeCount =
+    byId<HTMLSpanElement>("touch-grenade-count");
   private readonly minimap = byId<HTMLCanvasElement>("minimap");
   private readonly hitMarker = byId<HTMLDivElement>("hit-marker");
   private readonly damageFlash = byId<HTMLDivElement>("damage-flash");
@@ -119,6 +138,8 @@ export class Hud {
   private lastWeaponText = "";
   private lastWeaponCategory = "";
   private lastReloadText = "";
+  private lastCompassDegrees = -1;
+  private lastCompassCardinal = "";
   private hitMarkerTimeout = 0;
   private damageFlashTimeout = 0;
   private matchOverScoreLine = "";
@@ -252,12 +273,38 @@ export class Hud {
       this.grenadeCount.classList.toggle("utility-empty", grenades <= 0);
     }
     if (this.touchMedkit) {
-      this.touchMedkit.textContent = `MED ${medkits}`;
       this.touchMedkit.classList.toggle("utility-empty", medkits <= 0);
     }
     if (this.touchGrenade) {
-      this.touchGrenade.textContent = `FRAG ${grenades}`;
       this.touchGrenade.classList.toggle("utility-empty", grenades <= 0);
+    }
+    if (this.touchMedkitCount) {
+      this.touchMedkitCount.textContent = `${medkits}`;
+    }
+    if (this.touchGrenadeCount) {
+      this.touchGrenadeCount.textContent = `${grenades}`;
+    }
+  }
+
+  setCompass(yaw: number): void {
+    const heading =
+      (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
+    const degrees = Math.round(heading) % 360;
+    if (degrees !== this.lastCompassDegrees) {
+      this.lastCompassDegrees = degrees;
+      if (this.compassDegrees) {
+        this.compassDegrees.textContent = `${degrees
+          .toString()
+          .padStart(3, "0")}°`;
+      }
+    }
+    const cardinal =
+      COMPASS_POINTS[Math.round(heading / 45) % COMPASS_POINTS.length];
+    if (cardinal !== this.lastCompassCardinal) {
+      this.lastCompassCardinal = cardinal;
+      if (this.compassCardinal) {
+        this.compassCardinal.textContent = cardinal;
+      }
     }
   }
 

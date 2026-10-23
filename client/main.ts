@@ -44,6 +44,7 @@ if (!canvas) {
 const orientationFullscreenButton = document.querySelector<HTMLButtonElement>(
   "#orientation-fullscreen",
 );
+const BASE_FOV = IS_TOUCH_DEVICE ? 80 : 75;
 
 const world = createWorld(canvas, IS_TOUCH_DEVICE);
 const { renderer, scene, camera } = world;
@@ -972,8 +973,9 @@ function updateCamera(delta: number): void {
     camera.lookAt(0, 1.4, 0);
     hud.setEnemyTarget(false);
     hud.setAiming(false, false);
-    if (camera.fov !== 75) {
-      camera.fov = 75;
+    hud.setCompass(yaw);
+    if (camera.fov !== BASE_FOV) {
+      camera.fov = BASE_FOV;
       camera.updateProjectionMatrix();
     }
     return;
@@ -988,6 +990,7 @@ function updateCamera(delta: number): void {
     );
   }
   camera.rotation.set(pitch, yaw, 0, "YXZ");
+  hud.setCompass(yaw);
 
   if (local) {
     camera.getWorldDirection(lookDirection);
@@ -1010,7 +1013,7 @@ function updateCamera(delta: number): void {
   const zoomLevel = spec.zoomLevels?.[scopeIndex];
   const adsFov = zoomLevel?.fov ?? spec.adsFov;
   const scoped = aiming && spec.scopeOverlay === true;
-  const targetFov = aiming ? adsFov : 75;
+  const targetFov = aiming ? adsFov : BASE_FOV;
   const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 14, delta);
   if (Math.abs(nextFov - camera.fov) > 0.02) {
     camera.fov = nextFov;
@@ -1037,11 +1040,21 @@ function animate(): void {
     active && !paused && !matchOver && !dead && !searchMode;
 
   if (canControl) {
+    if (input.consumeQuickTurn()) {
+      yaw += Math.PI;
+    }
     const look = input.consumeLookDelta();
     if (look.x !== 0 || look.y !== 0) {
-      const zoomScale = THREE.MathUtils.clamp(camera.fov / 75, 0.25, 1);
+      const zoomScale = THREE.MathUtils.clamp(
+        camera.fov / BASE_FOV,
+        0.25,
+        1,
+      );
+      const flickBoost = IS_TOUCH_DEVICE
+        ? 1 + Math.min(Math.hypot(look.x, look.y) / 52, 1) * 0.45
+        : 1;
       const sensitivity =
-        (IS_TOUCH_DEVICE ? 0.0032 : 0.0022) * zoomScale;
+        (IS_TOUCH_DEVICE ? 0.0052 : 0.0022) * zoomScale * flickBoost;
       yaw -= look.x * sensitivity;
       pitch = clamp(
         pitch - look.y * sensitivity,
