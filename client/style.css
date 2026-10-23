@@ -1857,3 +1857,327 @@ body.touch #utility-bar {
 #scope.enemy #scope-zoom {
   color: #ff5c7a;
 }
+
+#orientation-gate {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  background:
+    radial-gradient(
+      ellipse at 50% 30%,
+      rgba(0, 180, 220, 0.2),
+      transparent 52%
+    ),
+    linear-gradient(135deg, #03070b 0%, #07121c 60%, #040a10 100%);
+}
+
+body.touch.portrait #orientation-gate {
+  display: flex;
+}
+
+.orientation-card {
+  width: min(420px, 100%);
+  padding: clamp(24px, 6vh, 38px);
+  border: 1px solid rgba(75, 225, 255, 0.28);
+  background: linear-gradient(
+    145deg,
+    rgba(8, 22, 34, 0.96),
+    rgba(4, 10, 16, 0.94)
+  );
+  box-shadow:
+    inset 0 0 42px rgba(0, 229, 255, 0.05),
+    0 24px 70px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.orientation-device {
+  position: relative;
+  width: 88px;
+  height: 50px;
+  margin: 0 auto 24px;
+  border: 2px solid rgba(75, 225, 255, 0.72);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 0 18px rgba(75, 225, 255, 0.1),
+    0 0 24px rgba(0, 229, 255, 0.16);
+  animation: orientation-tilt 2.4s ease-in-out infinite;
+}
+
+.orientation-device::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(75, 225, 255, 0.5);
+  transform: translateX(-50%);
+}
+
+.orientation-device::after {
+  content: "›";
+  position: absolute;
+  top: 50%;
+  right: -42px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  transform: translateY(-56%);
+}
+
+@keyframes orientation-tilt {
+  50% {
+    transform: rotate(6deg);
+  }
+}
+
+.orientation-card h2 {
+  margin: 10px 0 12px;
+  color: #f4fdff;
+  font-size: clamp(24px, 7vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.orientation-card p {
+  margin: 0 auto 20px;
+  max-width: 320px;
+  color: #9db4c4;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.orientation-card .primary-button {
+  width: 100%;
+  min-height: 48px;
+}
+
+.orientation-card .orientation-note {
+  margin: 14px auto 0;
+  color: rgba(126, 151, 169, 0.8);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (orientation: landscape) {
+  body.touch.landscape {
+    --touch-left: max(14px, env(safe-area-inset-left));
+    --touch-right: max(14px, env(safe-area-inset-right));
+    --touch-bottom: max(12px, calc(env(safe-area-inset-bottom) + 6px));
+    --touch-top: max(8px, calc(env(safe-area-inset-top) + 2px));
+    --stick-size: clamp(96px, 26vh, 118px);
+    --action-size: clamp(44px, 12vh, 54px);
+    --fire-size: clamp(64px, 17vh, 78px);
+    --minimap-size: clamp(88px, 25vh, 118px);
+    --hud-left: calc(var(--touch-left) + var(--stick-size) + 12px);
+    --hud-bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+  }
+
+  body.touch.landscape #scoreboard,
+  body.touch.landscape #weapon-slots,
+  body.touch.landscape #lock-hint,
+  body.touch.landscape #mode-label,
+  body.touch.landscape #connection-status,
+  body.touch.landscape #ping {
+    display: none !important;
+  }
+
+  body.touch.landscape #top-bar {
+    top: var(--touch-top);
+    left: max(56px, calc(env(safe-area-inset-left) + 50px));
+    right: max(56px, calc(env(safe-area-inset-right) + 50px));
+    min-height: 36px;
+    padding: 4px 14px;
+    gap: 12px;
+  }
+
+  body.touch.landscape #match-timer {
+    min-width: 54px;
+    font-size: 20px;
+  }
+
+  body.touch.landscape #team-scores {
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  body.touch.landscape .team-score b {
+    font-size: 16px;
+  }
+
+  body.touch.landscape #ffa-status {
+    font-size: 11px;
+  }
+
+  body.touch.landscape #touch-pause {
+    top: var(--touch-top);
+    right: var(--touch-right);
+    width: 36px;
+    height: 36px;
+  }
+
+  body.touch.landscape #minimap {
+    top: calc(var(--touch-top) + 46px);
+    right: var(--touch-right);
+    width: var(--minimap-size);
+    height: var(--minimap-size);
+  }
+
+  body.touch.landscape #kill-feed {
+    top: calc(var(--touch-top) + 46px);
+    right: calc(var(--touch-right) + var(--minimap-size) + 14px);
+    width: min(250px, 32vw);
+    gap: 3px;
+  }
+
+  body.touch.landscape .kill-entry {
+    padding: 3px 7px;
+    font-size: 9px;
+  }
+
+  body.touch.landscape #touch-move {
+    left: var(--touch-left);
+    bottom: var(--touch-bottom);
+    width: var(--stick-size);
+    height: var(--stick-size);
+  }
+
+  body.touch.landscape #touch-move-knob {
+    width: 42%;
+    height: 42%;
+  }
+
+  body.touch.landscape .touch-actions {
+    right: var(--touch-right);
+    bottom: var(--touch-bottom);
+    grid-template-columns: repeat(3, var(--action-size));
+    grid-template-rows: var(--action-size) var(--fire-size);
+    gap: clamp(5px, 1.4vh, 8px);
+  }
+
+  body.touch.landscape .touch-button.small {
+    width: var(--action-size);
+    height: var(--action-size);
+    font-size: 8px;
+  }
+
+  body.touch.landscape .touch-button.fire {
+    width: var(--fire-size);
+    height: var(--fire-size);
+    font-size: 10px;
+  }
+
+  body.touch.landscape #health-bar {
+    left: var(--hud-left);
+    bottom: var(--hud-bottom);
+    width: clamp(150px, 24vw, 210px);
+    height: 16px;
+  }
+
+  body.touch.landscape #armor-bar {
+    left: var(--hud-left);
+    bottom: calc(var(--hud-bottom) + 20px);
+    width: clamp(150px, 24vw, 210px);
+    height: 10px;
+  }
+
+  body.touch.landscape .touch-utility {
+    left: calc(var(--touch-left) + var(--stick-size) + 8px);
+    bottom: calc(var(--hud-bottom) + 42px);
+    gap: 5px;
+  }
+
+  body.touch.landscape .touch-utility .touch-button {
+    width: clamp(50px, 14vh, 62px);
+    height: clamp(30px, 8vh, 38px);
+    border-radius: 8px;
+  }
+
+  body.touch.landscape #ammo-panel {
+    right: var(--touch-right);
+    bottom: clamp(142px, 40vh, 178px);
+    min-width: 0;
+  }
+
+  body.touch.landscape #weapon-name {
+    font-size: 8px;
+  }
+
+  body.touch.landscape #ammo-line {
+    gap: 4px;
+  }
+
+  body.touch.landscape #ammo-current {
+    font-size: clamp(24px, 7vh, 32px);
+  }
+
+  body.touch.landscape .ammo-separator {
+    font-size: 16px;
+  }
+
+  body.touch.landscape #ammo-reserve {
+    font-size: 15px;
+  }
+
+  body.touch.landscape #reload-status {
+    font-size: 8px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 380px) {
+  body.touch.landscape {
+    --stick-size: 88px;
+    --action-size: 42px;
+    --fire-size: 60px;
+    --minimap-size: 76px;
+    --touch-top: max(6px, calc(env(safe-area-inset-top) + 1px));
+    --hud-bottom: max(14px, calc(env(safe-area-inset-bottom) + 8px));
+  }
+
+  body.touch.landscape #top-bar {
+    min-height: 32px;
+  }
+
+  body.touch.landscape #match-timer {
+    font-size: 18px;
+  }
+
+  body.touch.landscape #ammo-panel {
+    bottom: 124px;
+  }
+
+  body.touch.landscape #weapon-name,
+  body.touch.landscape #optic-status {
+    display: none;
+  }
+
+  body.touch.landscape #ammo-current {
+    font-size: 23px;
+  }
+
+  body.touch.landscape #health-bar {
+    width: 138px;
+    height: 14px;
+  }
+
+  body.touch.landscape #armor-bar {
+    width: 138px;
+    height: 9px;
+  }
+
+  body.touch.landscape .touch-utility .touch-button {
+    width: 48px;
+    height: 28px;
+  }
+}

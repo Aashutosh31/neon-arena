@@ -7,6 +7,12 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#05080d" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta
       name="description"
       content="Neon Arena is a fast browser FPS with online 4v4 team deathmatch, free-for-all, bots, and custom match rules."
@@ -15,6 +21,35 @@
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
+
+    <div
+      id="orientation-gate"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="orientation-title"
+    >
+      <div class="orientation-card">
+        <div class="orientation-device" aria-hidden="true"></div>
+        <div class="eyebrow">DISPLAY MODE</div>
+        <h2 id="orientation-title">LANDSCAPE REQUIRED</h2>
+        <p>
+          Rotate your device and enter fullscreen for the full arena view and
+          touch controls.
+        </p>
+        <button
+          id="orientation-fullscreen"
+          class="primary-button"
+          type="button"
+        >
+          ENTER FULLSCREEN
+        </button>
+        <p class="orientation-note">
+          If the screen does not rotate automatically, turn your device
+          sideways. Installation as an app works best.
+        </p>
+      </div>
+    </div>
+
     <div id="scope">
       <div id="scope-reticle"></div>
       <div id="scope-zoom"></div>

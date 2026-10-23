@@ -8,17 +8,41 @@ interface RemotePlayer {
 }
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
-const BODY_GEOMETRY = new THREE.CapsuleGeometry(0.34, 1.12, 4, 8);
-const HEAD_GEOMETRY = new THREE.SphereGeometry(0.18, 8, 6);
-const VISOR_GEOMETRY = new THREE.BoxGeometry(0.26, 0.08, 0.07);
-const GUN_GEOMETRY = new THREE.BoxGeometry(0.09, 0.09, 0.44);
-const RING_GEOMETRY = new THREE.RingGeometry(0.39, 0.48, 24);
+const BOX_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
+const HEAD_GEOMETRY = new THREE.SphereGeometry(0.185, 10, 8);
+const HELMET_GEOMETRY = new THREE.SphereGeometry(
+  0.205,
+  10,
+  6,
+  0,
+  Math.PI * 2,
+  0,
+  Math.PI * 0.58,
+);
+const NECK_GEOMETRY = new THREE.CylinderGeometry(0.085, 0.1, 0.1, 8);
+const RING_GEOMETRY = new THREE.RingGeometry(0.46, 0.57, 28);
+const SUIT_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0x1a2633,
+  emissive: 0x050c13,
+  emissiveIntensity: 0.42,
+  roughness: 0.72,
+  metalness: 0.28,
+  flatShading: true,
+});
 const VISOR_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x081018,
-  emissive: 0x66f6ff,
-  emissiveIntensity: 1.4,
-  roughness: 0.2,
-  metalness: 0.6,
+  color: 0x061016,
+  emissive: 0x72f3ff,
+  emissiveIntensity: 1.7,
+  roughness: 0.18,
+  metalness: 0.72,
+  flatShading: true,
+});
+const RIFLE_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0x202833,
+  emissive: 0x080f18,
+  emissiveIntensity: 0.5,
+  roughness: 0.42,
+  metalness: 0.62,
   flatShading: true,
 });
 
@@ -26,28 +50,76 @@ const TEAM_MATERIALS: Record<TeamId, THREE.MeshStandardMaterial> = {
   alpha: new THREE.MeshStandardMaterial({
     color: 0x22d3ee,
     emissive: 0x0b6b7a,
-    emissiveIntensity: 0.7,
-    roughness: 0.55,
-    metalness: 0.15,
+    emissiveIntensity: 0.55,
+    roughness: 0.46,
+    metalness: 0.34,
     flatShading: true,
   }),
   bravo: new THREE.MeshStandardMaterial({
     color: 0xff7a45,
     emissive: 0x7a2d0c,
-    emissiveIntensity: 0.7,
-    roughness: 0.55,
-    metalness: 0.15,
+    emissiveIntensity: 0.55,
+    roughness: 0.46,
+    metalness: 0.34,
     flatShading: true,
   }),
   ffa: new THREE.MeshStandardMaterial({
     color: 0xc084fc,
     emissive: 0x4c1d95,
-    emissiveIntensity: 0.7,
-    roughness: 0.55,
-    metalness: 0.15,
+    emissiveIntensity: 0.55,
+    roughness: 0.46,
+    metalness: 0.34,
     flatShading: true,
   }),
 };
+
+function addBox(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  width: number,
+  height: number,
+  depth: number,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(BOX_GEOMETRY, material);
+  mesh.scale.set(width, height, depth);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+}
+
+function addArm(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  x: number,
+  forward: number,
+  inward: number,
+): void {
+  const arm = new THREE.Group();
+  arm.position.set(x, 1.4, 0);
+  arm.rotation.set(forward, 0, inward);
+  addBox(arm, material, 0.16, 0.32, 0.18, 0, -0.17, 0);
+  addBox(arm, SUIT_MATERIAL, 0.14, 0.28, 0.16, 0, -0.45, 0);
+  addBox(arm, SUIT_MATERIAL, 0.15, 0.14, 0.16, 0, -0.64, -0.01);
+  parent.add(arm);
+}
+
+function addLeg(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  x: number,
+): THREE.Group {
+  const leg = new THREE.Group();
+  leg.position.set(x, 0.86, 0);
+  addBox(leg, material, 0.21, 0.37, 0.24, 0, -0.19, 0);
+  addBox(leg, SUIT_MATERIAL, 0.17, 0.32, 0.2, 0, -0.52, 0.01);
+  addBox(leg, SUIT_MATERIAL, 0.22, 0.14, 0.31, 0, -0.73, -0.045);
+  addBox(leg, VISOR_MATERIAL, 0.15, 0.07, 0.04, 0, -0.37, -0.13);
+  parent.add(leg);
+  return leg;
+}
 
 export class RemoteManager {
   private readonly scene: THREE.Scene;
@@ -184,20 +256,54 @@ export class RemoteManager {
     const group = new THREE.Group();
     const material = TEAM_MATERIALS[state.team];
 
-    const body = new THREE.Mesh(BODY_GEOMETRY, material);
-    body.position.y = 0.9;
-    const head = new THREE.Mesh(HEAD_GEOMETRY, material);
-    head.position.y = 1.57;
-    const visor = new THREE.Mesh(VISOR_GEOMETRY, VISOR_MATERIAL);
-    visor.position.set(0, 1.61, -0.16);
-    const weapon = new THREE.Mesh(GUN_GEOMETRY, material);
-    weapon.position.set(0.27, 1.08, -0.32);
+    addBox(group, material, 0.48, 0.22, 0.3, 0, 0.86, 0);
+    addBox(group, SUIT_MATERIAL, 0.52, 0.24, 0.31, 0, 1.05, 0);
+    addBox(group, material, 0.66, 0.42, 0.34, 0, 1.29, 0);
+    addBox(group, SUIT_MATERIAL, 0.08, 0.36, 0.05, -0.2, 1.29, -0.18);
+    addBox(group, SUIT_MATERIAL, 0.08, 0.36, 0.05, 0.2, 1.29, -0.18);
+    addBox(group, VISOR_MATERIAL, 0.16, 0.055, 0.035, 0, 1.36, -0.2);
+    addBox(group, SUIT_MATERIAL, 0.42, 0.4, 0.16, 0, 1.24, 0.24);
+    addBox(group, material, 0.2, 0.18, 0.3, -0.35, 1.42, 0);
+    addBox(group, material, 0.2, 0.18, 0.3, 0.35, 1.42, 0);
+
+    const neck = new THREE.Mesh(NECK_GEOMETRY, SUIT_MATERIAL);
+    neck.position.y = 1.54;
+    group.add(neck);
+
+    const head = new THREE.Mesh(HEAD_GEOMETRY, SUIT_MATERIAL);
+    head.position.y = 1.67;
+    group.add(head);
+
+    const helmet = new THREE.Mesh(HELMET_GEOMETRY, material);
+    helmet.position.y = 1.68;
+    group.add(helmet);
+
+    addBox(group, VISOR_MATERIAL, 0.27, 0.09, 0.055, 0, 1.68, -0.16);
+    addBox(group, SUIT_MATERIAL, 0.18, 0.08, 0.07, 0, 1.59, -0.15);
+
+    addArm(group, material, -0.34, 0.82, 0.42);
+    addArm(group, material, 0.34, 0.78, -0.05);
+    addLeg(group, material, -0.14);
+    addLeg(group, material, 0.14);
+
+    const weapon = new THREE.Group();
+    weapon.position.set(0.22, 1.0, -0.37);
+    addBox(weapon, RIFLE_MATERIAL, 0.13, 0.14, 0.62, 0, -0.02, -0.18);
+    addBox(weapon, RIFLE_MATERIAL, 0.055, 0.055, 0.38, 0, 0.01, -0.66);
+    addBox(weapon, RIFLE_MATERIAL, 0.1, 0.16, 0.22, 0, -0.03, 0.2);
+    addBox(weapon, RIFLE_MATERIAL, 0.09, 0.2, 0.13, 0, -0.17, -0.17);
+    addBox(weapon, material, 0.055, 0.035, 0.38, 0, 0.075, -0.24);
+    group.add(weapon);
+
+    addBox(group, SUIT_MATERIAL, 0.15, 0.14, 0.16, 0.29, 0.94, -0.34);
+    addBox(group, SUIT_MATERIAL, 0.15, 0.14, 0.16, -0.08, 0.98, -0.48);
+
     const ring = new THREE.Mesh(
       RING_GEOMETRY,
       new THREE.MeshBasicMaterial({
         color: material.color,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.36,
         side: THREE.DoubleSide,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -205,8 +311,9 @@ export class RemoteManager {
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
+    group.add(ring);
+    group.scale.setScalar(1.04);
 
-    group.add(body, head, visor, weapon, ring);
     group.position.set(
       state.position.x,
       state.position.y,

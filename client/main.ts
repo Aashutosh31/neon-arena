@@ -41,6 +41,9 @@ const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas");
 if (!canvas) {
   throw new Error("Canvas #game-canvas not found");
 }
+const orientationFullscreenButton = document.querySelector<HTMLButtonElement>(
+  "#orientation-fullscreen",
+);
 
 const world = createWorld(canvas, IS_TOUCH_DEVICE);
 const { renderer, scene, camera } = world;
@@ -109,6 +112,46 @@ function localState(): PlayerState | null {
   return (
     currentState.players.find((player) => player.id === playerId) ?? null
   );
+}
+
+function updateViewportMode(): void {
+  if (!IS_TOUCH_DEVICE) {
+    return;
+  }
+  const portrait = window.innerHeight > window.innerWidth;
+  document.body.classList.toggle("portrait", portrait);
+  document.body.classList.toggle("landscape", !portrait);
+}
+
+async function lockLandscape(): Promise<void> {
+  if (!IS_TOUCH_DEVICE || !document.fullscreenElement) {
+    return;
+  }
+  const orientation = screen.orientation as
+    | (ScreenOrientation & {
+        lock?: (orientation: "landscape") => Promise<void>;
+      })
+    | undefined;
+  try {
+    await orientation?.lock?.("landscape");
+  } catch {
+    // Browsers may reject orientation locking; the rotate gate remains.
+  }
+}
+
+async function enterImmersiveMode(): Promise<void> {
+  if (!IS_TOUCH_DEVICE) {
+    return;
+  }
+  if (!document.fullscreenElement) {
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      // Fullscreen is unavailable on some mobile browsers.
+    }
+  }
+  await lockLandscape();
+  updateViewportMode();
 }
 
 function resetScopeIndex(weapon: WeaponId): void {
@@ -1103,6 +1146,7 @@ function animate(): void {
 }
 
 function onResize(): void {
+  updateViewportMode();
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -1111,10 +1155,22 @@ function onResize(): void {
 const clock = new THREE.Clock();
 
 hud.bindMenu({
-  offlineTdm: () => startOffline("tdm"),
-  offlineFfa: () => startOffline("ffa"),
-  onlineTdm: () => startOnline("tdm"),
-  onlineFfa: () => startOnline("ffa"),
+  offlineTdm: () => {
+    void enterImmersiveMode();
+    startOffline("tdm");
+  },
+  offlineFfa: () => {
+    void enterImmersiveMode();
+    startOffline("ffa");
+  },
+  onlineTdm: () => {
+    void enterImmersiveMode();
+    startOnline("tdm");
+  },
+  onlineFfa: () => {
+    void enterImmersiveMode();
+    startOnline("ffa");
+  },
 });
 
 hud.bindGame({
@@ -1126,6 +1182,10 @@ hud.bindGame({
 });
 
 document.body.classList.toggle("touch", IS_TOUCH_DEVICE);
+updateViewportMode();
+orientationFullscreenButton?.addEventListener("click", () => {
+  void enterImmersiveMode();
+});
 localPlayer.reset({ x: 0, y: 0, z: 10 });
 resetScopeIndex("rifle");
 hud.showMenu();
@@ -1166,4 +1226,18 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("resize", onResize);
+window.visualViewport?.addEventListener("resize", onResize);
+window.addEventListener("orientationchange", () => {
+  window.setTimeout(onResize, 120);
+});
+screen.orientation?.addEventListener("change", () => {
+  updateViewportMode();
+  void lockLandscape();
+});
+document.addEventListener("fullscreenchange", () => {
+  updateViewportMode();
+  if (document.fullscreenElement) {
+    void lockLandscape();
+  }
+});
 window.requestAnimationFrame(animate);
