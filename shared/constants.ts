@@ -35,6 +35,7 @@ export const ARENA_LIMIT = ARENA_HALF_EXTENT - PLAYER_HALF_WIDTH;
 export const GRAVITY = -25;
 export const JUMP_STRENGTH = 8;
 export const MAX_FALL_SPEED = -40;
+export const MAX_STEP_HEIGHT = 0.45;
 
 export const MAX_MOVE_SPEED = 6;
 

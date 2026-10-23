@@ -59,6 +59,20 @@ export interface PickupSpawn {
   z: number;
 }
 
+export interface StairSpec {
+  id: string;
+  buildingId: string;
+  startX: number;
+  startZ: number;
+  endX: number;
+  endZ: number;
+  alongX: boolean;
+  width: number;
+  depth: number;
+  topY: number;
+  steps: number;
+}
+
 export const FLOOR_SIZE = ARENA_HALF_EXTENT * 2 + 2;
 export const FLOOR_Y = 0;
 export const FLOOR_COLOR = 0x0a111c;
@@ -90,6 +104,7 @@ interface BuildingSpec {
 const objects: MapObject[] = [];
 const roofs: RoofSpec[] = [];
 const panels: PanelSpec[] = [];
+const stairs: StairSpec[] = [];
 const sidewalks: SidewalkSpec[] = [];
 const streetLights: StreetLightSpec[] = [];
 let objectSerial = 0;
@@ -184,7 +199,7 @@ function door(center = 0): WallOpening {
 }
 
 function window(center: number, width = 2.2): WallOpening {
-  return { center, width, bottom: 1.05, top: 2.4 };
+  return { center, width, bottom: 0.9, top: 3.3 };
 }
 
 function opposite(side: Side): Side {
@@ -511,6 +526,90 @@ function addBuilding(spec: BuildingSpec, index: number): void {
   }
 }
 
+const STAIR_RISE = 0.36;
+const STAIR_RUN = 0.34;
+const STAIR_WIDTH = 1.7;
+const STAIR_LANDING = 0.8;
+const STAIR_MARGIN = 0.3;
+const STAIR_COLOR = 0x2a5f78;
+
+function stairSide(spec: BuildingSpec): Side {
+  if (spec.front === "north" || spec.front === "south") {
+    return spec.x < 0 ? "west" : "east";
+  }
+  return spec.z < 0 ? "north" : "south";
+}
+
+function addRoofStairs(spec: BuildingSpec): void {
+  const side = stairSide(spec);
+  const edge = sideEdges(spec)[side];
+  const alongX = side === "north" || side === "south";
+  const outward =
+    side === "east"
+      ? 1
+      : side === "west"
+        ? -1
+        : side === "south"
+          ? 1
+          : -1;
+  const span = edge.to - edge.from;
+  const topY = spec.height + 0.34;
+  const steps = Math.ceil(topY / STAIR_RISE);
+  const runLength = steps * STAIR_RUN;
+  const landing = Math.min(
+    STAIR_LANDING,
+    span - runLength - STAIR_MARGIN * 2,
+  );
+  if (landing < 0.3) {
+    return;
+  }
+
+  const crossCenter =
+    edge.fixed + outward * (STAIR_WIDTH / 2 + 0.03);
+  const startAlong = edge.from + STAIR_MARGIN;
+  const stepTop = topY / steps;
+
+  for (let step = 0; step < steps; step += 1) {
+    const center = startAlong + (step + 0.5) * STAIR_RUN;
+    addBox(
+      `${spec.id}-stairs-${step}`,
+      alongX ? center : crossCenter,
+      0,
+      alongX ? crossCenter : center,
+      alongX ? STAIR_RUN : STAIR_WIDTH,
+      (step + 1) * stepTop,
+      alongX ? STAIR_WIDTH : STAIR_RUN,
+      STAIR_COLOR,
+    );
+  }
+
+  const landingCenter = startAlong + runLength + landing / 2;
+  addBox(
+    `${spec.id}-stairs-landing`,
+    alongX ? landingCenter : crossCenter,
+    0,
+    alongX ? crossCenter : landingCenter,
+    alongX ? landing : STAIR_WIDTH,
+    topY,
+    alongX ? STAIR_WIDTH : landing,
+    STAIR_COLOR,
+  );
+
+  stairs.push({
+    id: `${spec.id}-stairs`,
+    buildingId: spec.id,
+    startX: alongX ? startAlong : crossCenter,
+    startZ: alongX ? crossCenter : startAlong,
+    endX: alongX ? landingCenter : crossCenter,
+    endZ: alongX ? crossCenter : landingCenter,
+    alongX,
+    width: alongX ? runLength + landing : STAIR_WIDTH,
+    depth: alongX ? STAIR_WIDTH : runLength + landing,
+    topY,
+    steps,
+  });
+}
+
 function addFountain(): void {
   addBox("fountain-north", 0, 0, -3.35, 7.2, 0.82, 0.45, 0x23506b);
   addBox("fountain-south", 0, 0, 3.35, 7.2, 0.82, 0.45, 0x23506b);
@@ -649,6 +748,11 @@ addBox(
 );
 
 BUILDINGS.forEach(addBuilding);
+BUILDINGS.forEach((building) => {
+  if (building.roofStyle === "flat") {
+    addRoofStairs(building);
+  }
+});
 addFountain();
 addPlazaCover();
 addStreetLights();
@@ -671,6 +775,7 @@ export const MAP_PICKUPS: readonly PickupSpawn[] = [
 ];
 
 export const MAP_OBJECTS: readonly MapObject[] = objects;
+export const MAP_STAIRS: readonly StairSpec[] = stairs;
 export const MAP_ROOFS: readonly RoofSpec[] = roofs;
 export const MAP_WINDOWS: readonly PanelSpec[] = panels;
 export const MAP_SIDEWALKS: readonly SidewalkSpec[] = sidewalks;

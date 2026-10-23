@@ -8,7 +8,7 @@ import {
   sanitizeName,
   sanitizeRules,
 } from "../shared/game";
-import { MAP_ROOFS, MAP_SIDEWALKS } from "../shared/map";
+import { MAP_ROOFS, MAP_SIDEWALKS, MAP_STAIRS } from "../shared/map";
 import type {
   GameMode,
   GameRules,
@@ -766,6 +766,17 @@ export class Hud {
       context.lineWidth = 1;
       context.fillRect(x - width / 2, y - depth / 2, width, depth);
       context.strokeRect(x - width / 2, y - depth / 2, width, depth);
+    }
+
+    context.strokeStyle = "rgba(255, 154, 205, 0.9)";
+    context.lineWidth = 2;
+    for (const stair of MAP_STAIRS) {
+      const [startX, startY] = toMap(stair.startX, stair.startZ);
+      const [endX, endY] = toMap(stair.endX, stair.endZ);
+      context.beginPath();
+      context.moveTo(startX, startY);
+      context.lineTo(endX, endY);
+      context.stroke();
     }
 
     context.strokeStyle = "rgba(88, 220, 255, 0.35)";

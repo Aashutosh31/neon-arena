@@ -7,6 +7,7 @@ import {
   JUMP_STRENGTH,
   MAX_FALL_SPEED,
   MAX_MOVE_SPEED,
+  MAX_STEP_HEIGHT,
   MAX_SIMULATION_STEPS,
   PLAYER_HALF_DEPTH,
   PLAYER_HALF_WIDTH,
@@ -155,6 +156,9 @@ function moveAxisX(state: MovementState, amount: number): void {
     if (!hit) {
       return;
     }
+    if (tryStepUp(state, hit)) {
+      continue;
+    }
 
     if (amount > 0) {
       state.position.x = Math.min(
@@ -182,6 +186,9 @@ function moveAxisZ(state: MovementState, amount: number): void {
     const hit = findOverlappingObject(state);
     if (!hit) {
       return;
+    }
+    if (tryStepUp(state, hit)) {
+      continue;
     }
 
     if (amount > 0) {
@@ -254,6 +261,28 @@ function moveAxisY(state: MovementState, amount: number): void {
     state.position.y = ceilingY - PLAYER_HEIGHT;
     state.velocity.y = 0;
   }
+}
+
+function tryStepUp(state: MovementState, object: MapObject): boolean {
+  if (!state.grounded) {
+    return false;
+  }
+
+  const stepTop = object.y + object.height;
+  const stepHeight = stepTop - state.position.y;
+  if (stepHeight <= 0.001 || stepHeight > MAX_STEP_HEIGHT) {
+    return false;
+  }
+
+  const previousY = state.position.y;
+  state.position.y = stepTop;
+  if (findOverlappingObject(state)) {
+    state.position.y = previousY;
+    return false;
+  }
+
+  state.velocity.y = Math.max(0, state.velocity.y);
+  return true;
 }
 
 function findOverlappingObject(state: MovementState): MapObject | null {

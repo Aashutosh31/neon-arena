@@ -777,7 +777,7 @@ function attemptShoot(): void {
   camera.getWorldDirection(lookDirection);
   gun.fire();
   audio.playShoot(local.weapon);
-  effects.fireLocal(camera.position, lookDirection, remotes);
+  effects.fireLocal(camera.position, lookDirection, remotes, local.weapon);
 
   if (offlineGame) {
     offlineGame.shoot(

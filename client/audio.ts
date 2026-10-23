@@ -61,6 +61,39 @@ function synthShoot(): Float32Array {
   return samples;
 }
 
+function synthSniperShot(): Float32Array {
+  const duration = 0.62;
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+  let noise = 0;
+  let seed = 0x6b5f4d3c;
+
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const white = (seed / 0x7fffffff) * 2 - 1;
+    noise = noise * 0.67 + white * 0.33;
+    const crack = white * Math.exp(-58 * t) * 0.82;
+    const snap =
+      Math.sin(2 * Math.PI * (2350 - 1550 * (t / duration)) * t) *
+      Math.exp(-34 * t) *
+      0.5;
+    const boom =
+      Math.sin(2 * Math.PI * (108 - 56 * (t / duration)) * t) *
+      Math.exp(-7.5 * t) *
+      0.95;
+    const body = noise * Math.exp(-12 * t) * 0.55;
+    const tailTime = Math.max(0, t - 0.105);
+    const tail =
+      Math.sin(2 * Math.PI * 72 * tailTime) *
+      Math.exp(-6.2 * tailTime) *
+      (t > 0.105 ? 0.32 : 0);
+    samples[i] = crack + snap + boom + body + tail;
+  }
+
+  return samples;
+}
+
 function synthClick(frequency: number, duration: number): Float32Array {
   const length = Math.round(SAMPLE_RATE * duration);
   const samples = new Float32Array(length);
@@ -177,7 +210,9 @@ const SHOT_VOLUME: Record<WeaponId, number> = {
 
 export class GameAudio {
   private readonly shoot: HTMLAudioElement;
+  private readonly sniperShoot: HTMLAudioElement;
   private readonly remoteShoot: HTMLAudioElement;
+  private readonly remoteSniperShoot: HTMLAudioElement;
   private readonly hit: HTMLAudioElement;
   private readonly headshot: HTMLAudioElement;
   private readonly death: HTMLAudioElement;
@@ -191,7 +226,12 @@ export class GameAudio {
   constructor() {
     const shootUrl = encodeWav(synthShoot());
     this.shoot = createAudio(shootUrl, 0.22);
+    this.sniperShoot = createAudio(encodeWav(synthSniperShot()), 0.68);
     this.remoteShoot = createAudio(shootUrl, 0.18);
+    this.remoteSniperShoot = createAudio(
+      encodeWav(synthSniperShot()),
+      0.36,
+    );
     this.hit = createAudio(encodeWav(synthHit()), 0.25);
     this.headshot = createAudio(encodeWav(synthHit()), 0.3);
     this.headshot.playbackRate = 1.3;
@@ -206,12 +246,20 @@ export class GameAudio {
   }
 
   playShoot(weapon: WeaponId): void {
+    if (weapon === "sniper") {
+      this.play(this.sniperShoot);
+      return;
+    }
     this.shoot.volume = SHOT_VOLUME[weapon];
     this.shoot.playbackRate = SHOT_RATE[weapon];
     this.play(this.shoot);
   }
 
   playRemoteShoot(weapon: WeaponId): void {
+    if (weapon === "sniper") {
+      this.play(this.remoteSniperShoot);
+      return;
+    }
     this.remoteShoot.playbackRate = SHOT_RATE[weapon];
     this.play(this.remoteShoot);
   }
