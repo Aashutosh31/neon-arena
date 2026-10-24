@@ -45,7 +45,7 @@ export const AIR_ACCELERATION = 4;
 export const GROUND_FRICTION = 12;
 export const AIR_FRICTION = 0.5;
 
-export const MAX_HEALTH = 100;
+export const MAX_HEALTH = 200;
 export const MAX_ARMOR = 100;
 export const SPAWN_ARMOR = 25;
 export const ARMOR_ABSORPTION = 0.6;

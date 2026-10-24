@@ -249,7 +249,7 @@ export class Hud {
     if (this.healthLabel) {
       this.healthLabel.textContent = `HP ${clamped}`;
     }
-    this.healthBar?.classList.toggle("low", clamped <= 25);
+    this.healthBar?.classList.toggle("low", clamped <= MAX_HEALTH * 0.25);
   }
 
   setArmor(armor: number): void {
@@ -336,8 +336,13 @@ export class Hud {
         continue;
       }
       const [x, y] = toMap(pickup.position.x, pickup.position.z);
-      context.fillStyle =
-        pickup.kind === "medkit" ? "#66ffb2" : "#5ad8ff";
+      if (pickup.kind === "medkit") {
+        context.fillStyle = "#66ffb2";
+      } else if (pickup.kind === "grenade") {
+        context.fillStyle = "#ff8a5b";
+      } else {
+        context.fillStyle = "#5ad8ff";
+      }
       context.globalAlpha = 0.78;
       context.fillRect(x - 1.5, y - 1.5, 3, 3);
     }

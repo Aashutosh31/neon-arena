@@ -15,6 +15,7 @@ import {
   MATCH_DURATION_SECONDS,
   MATCH_RESTART_MS,
   MAX_ARMOR,
+  MAX_GRENADES,
   MAX_HEALTH,
   MAX_MATCH_PLAYERS,
   MAX_MEDKITS,
@@ -875,12 +876,23 @@ export class GameSimulation {
         ) {
           continue;
         }
+        if (
+          pickup.kind === "grenade" &&
+          player.grenades >= MAX_GRENADES
+        ) {
+          continue;
+        }
         if (pickup.kind === "armor" && player.armor >= MAX_ARMOR) {
           continue;
         }
 
         if (pickup.kind === "medkit") {
           player.medkits = Math.min(MAX_MEDKITS, player.medkits + 1);
+        } else if (pickup.kind === "grenade") {
+          player.grenades = Math.min(
+            MAX_GRENADES,
+            player.grenades + 1,
+          );
         } else {
           player.armor = Math.min(
             MAX_ARMOR,

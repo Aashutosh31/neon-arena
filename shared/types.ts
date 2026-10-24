@@ -7,7 +7,7 @@ export interface Vec3 {
 
 export type GameMode = "tdm" | "ffa";
 export type TeamId = "alpha" | "bravo" | "ffa";
-export type PickupKind = "medkit" | "armor";
+export type PickupKind = "medkit" | "armor" | "grenade";
 export type WeaponId =
   | "rifle"
   | "smg"
