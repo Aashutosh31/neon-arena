@@ -50,10 +50,51 @@
       </div>
     </div>
 
-    <div id="scope">
-      <div id="scope-reticle"></div>
-      <div id="scope-zoom"></div>
-      <div id="scope-hint"></div>
+    <div id="scope" aria-hidden="true">
+      <div id="scope-lens">
+        <svg id="scope-reticle" viewBox="-100 -100 200 200">
+          <circle class="scope-ring-outer" r="93" />
+          <circle class="scope-ring-clock" r="87" />
+          <circle class="scope-ring-inner" r="41" />
+          <g class="scope-clock">
+            <path d="M0 -90V-85" />
+            <path d="M0 -90V-85" transform="rotate(30)" />
+            <path d="M0 -90V-85" transform="rotate(60)" />
+            <path d="M0 -90V-85" transform="rotate(90)" />
+            <path d="M0 -90V-85" transform="rotate(120)" />
+            <path d="M0 -90V-85" transform="rotate(150)" />
+            <path d="M0 -90V-85" transform="rotate(180)" />
+            <path d="M0 -90V-85" transform="rotate(210)" />
+            <path d="M0 -90V-85" transform="rotate(240)" />
+            <path d="M0 -90V-85" transform="rotate(270)" />
+            <path d="M0 -90V-85" transform="rotate(300)" />
+            <path d="M0 -90V-85" transform="rotate(330)" />
+          </g>
+          <g class="scope-major">
+            <path d="M-90 0H-11M11 0H90M0-90V-11M0 11V90" />
+          </g>
+          <g class="scope-ticks">
+            <path d="M-17-2V2M17-2V2M-24-3V3M24-3V3M-32-2V2M32-2V2M-48-4V4M48-4V4M-63-3V3M63-3V3M-78-5V5M78-5V5" />
+            <path d="M-2-17H2M2 17H-2M-3-24H3M3 24H-3M-2-32H2M2 32H-2M-4-48H4M4 48H-4M-3-63H3M3 63H-3M-5-78H5M5 78H-5" />
+          </g>
+          <g class="scope-ladder">
+            <path d="M-6 19H7M-5 31H6M-4 45H5M-3 61H4" />
+            <text x="12" y="22">2</text>
+            <text x="11" y="34">4</text>
+            <text x="10" y="48">6</text>
+            <text x="9" y="64">8</text>
+          </g>
+          <g class="scope-center">
+            <circle class="scope-center-halo" r="6.5" />
+            <circle class="scope-center-dot" r="1.8" />
+          </g>
+        </svg>
+        <div id="scope-glare"></div>
+      </div>
+      <div id="scope-readout">
+        <span id="scope-zoom"></span>
+        <span id="scope-hint"></span>
+      </div>
     </div>
 
     <div id="hud">

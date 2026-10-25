@@ -25,11 +25,11 @@ export const EYE_HEIGHT = 1.6;
 export const HEAD_HEIGHT = PLAYER_HEIGHT - 0.34;
 
 /*
- * The arena interior is 92x92. This is the maximum player-center coordinate;
+ * The arena interior is 136x136. This is the maximum player-center coordinate;
  * the AABB is already stopped by the perimeter wall collision, so this value
  * is only a final safety clamp.
  */
-export const ARENA_HALF_EXTENT = 46;
+export const ARENA_HALF_EXTENT = 68;
 export const ARENA_LIMIT = ARENA_HALF_EXTENT - PLAYER_HALF_WIDTH;
 
 export const GRAVITY = -25;

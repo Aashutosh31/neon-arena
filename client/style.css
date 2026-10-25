@@ -62,82 +62,275 @@ button {
 }
 
 #scope {
+  --scope-size: min(72vmin, 680px);
+  --scope-radius: calc(var(--scope-size) / 2);
+  --reticle: rgba(120, 242, 255, 0.72);
+  --reticle-dim: rgba(104, 216, 236, 0.3);
+  --reticle-bright: #a6fbff;
   position: fixed;
   inset: 0;
   z-index: 6;
+  display: none;
   pointer-events: none;
-  opacity: 0;
   background:
     radial-gradient(
-      circle at center,
-      rgba(0, 0, 0, 0) 0,
-      rgba(0, 0, 0, 0) 27vmin,
-      rgba(0, 0, 0, 0.98) 27.6vmin,
+      circle at 50% 50%,
+      transparent 0 calc(var(--scope-radius) - 3px),
+      rgba(55, 220, 245, 0.16) calc(var(--scope-radius) - 2px),
+      rgba(5, 13, 19, 0.9) calc(var(--scope-radius) + 2px),
+      rgba(0, 0, 0, 0.99) calc(var(--scope-radius) + 9px),
       #000 100%
     );
-  transition: opacity 120ms ease;
 }
 
 #scope.visible {
-  opacity: 1;
+  display: block;
+}
+
+#scope.visible #scope-lens {
+  animation: scope-lens-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#scope.visible #scope-reticle {
+  animation: scope-reticle-in 180ms ease-out;
+}
+
+@keyframes scope-lens-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes scope-reticle-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#scope-lens {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--scope-size);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0.94);
+  box-shadow:
+    inset 0 0 7vmin 1.5vmin rgba(0, 0, 0, 0.56),
+    inset 0 0 2px 1px rgba(125, 247, 255, 0.34),
+    0 0 0 1px rgba(2, 8, 12, 0.95),
+    0 0 0 3px rgba(35, 61, 72, 0.9),
+    0 0 0 4px rgba(8, 17, 22, 1),
+    0 0 22px 2px rgba(0, 0, 0, 0.98);
+}
+
+#scope.visible #scope-lens {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+#scope-lens::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 34% 24%,
+      rgba(174, 249, 255, 0.11) 0,
+      rgba(90, 224, 245, 0.035) 20%,
+      transparent 42%
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 54%,
+      rgba(0, 31, 43, 0.15) 76%,
+      rgba(0, 4, 8, 0.58) 100%
+    );
+  box-shadow:
+    inset 0 0 2.5vmin rgba(56, 229, 255, 0.12),
+    inset 0 0 9vmin rgba(0, 0, 0, 0.42);
+}
+
+#scope-lens::after {
+  content: "";
+  position: absolute;
+  inset: 2.5%;
+  z-index: 3;
+  border-radius: 50%;
+  border: 1px solid rgba(119, 237, 255, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(58, 202, 223, 0.1);
+}
+
+#scope-glare {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: 50%;
+  background: linear-gradient(
+    116deg,
+    transparent 30%,
+    rgba(191, 252, 255, 0.045) 42%,
+    rgba(155, 247, 255, 0.1) 46%,
+    transparent 54%
+  );
 }
 
 #scope-reticle {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: min(54vmin, 560px);
-  aspect-ratio: 1;
-  border: 1px solid rgba(75, 225, 255, 0.28);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow:
-    inset 0 0 30px rgba(0, 229, 255, 0.08),
-    0 0 18px rgba(0, 229, 255, 0.1);
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter:
+    drop-shadow(0 0 2px rgba(0, 9, 12, 0.9))
+    drop-shadow(0 0 2px rgba(51, 220, 240, 0.28));
 }
 
-#scope-reticle::before,
-#scope-reticle::after {
-  content: "";
+#scope-reticle path,
+#scope-reticle circle {
+  vector-effect: non-scaling-stroke;
+  fill: none;
+}
+
+#scope-reticle .scope-ring-outer {
+  stroke: var(--reticle);
+  stroke-width: 0.8;
+  opacity: 0.72;
+}
+
+#scope-reticle .scope-ring-clock {
+  stroke: var(--reticle-dim);
+  stroke-width: 0.65;
+  stroke-dasharray: 1 7;
+}
+
+#scope-reticle .scope-ring-inner {
+  stroke: var(--reticle-dim);
+  stroke-width: 0.55;
+  stroke-dasharray: 2 6;
+  opacity: 0.7;
+}
+
+#scope-reticle .scope-clock path {
+  stroke: var(--reticle-dim);
+  stroke-width: 0.65;
+}
+
+#scope-reticle .scope-major path {
+  stroke: var(--reticle);
+  stroke-width: 0.8;
+  opacity: 0.88;
+}
+
+#scope-reticle .scope-ticks path {
+  stroke: var(--reticle);
+  stroke-width: 0.55;
+  opacity: 0.64;
+}
+
+#scope-reticle .scope-ladder path {
+  stroke: var(--reticle);
+  stroke-width: 0.6;
+  opacity: 0.58;
+}
+
+#scope-reticle .scope-ladder text {
+  fill: var(--reticle);
+  stroke: none;
+  font-family: var(--mono);
+  font-size: 4px;
+  font-weight: 700;
+  text-anchor: middle;
+  opacity: 0.68;
+}
+
+#scope-reticle .scope-center-halo {
+  stroke: var(--reticle-dim);
+  stroke-width: 0.6;
+  opacity: 0.55;
+}
+
+#scope-reticle .scope-center-dot {
+  fill: var(--reticle-bright);
+  stroke: none;
+  filter: drop-shadow(0 0 2px var(--reticle));
+}
+
+#scope-readout {
   position: absolute;
-  background: rgba(130, 238, 255, 0.42);
-}
-
-#scope-reticle::before {
-  top: 50%;
-  left: 7%;
-  right: 7%;
-  height: 1px;
-}
-
-#scope-reticle::after {
-  top: 7%;
-  bottom: 7%;
+  top: calc(50% + var(--scope-radius) - 48px);
   left: 50%;
-  width: 1px;
+  display: flex;
+  min-width: 112px;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 12px 4px;
+  border-top: 1px solid rgba(73, 225, 247, 0.22);
+  background: linear-gradient(
+    180deg,
+    rgba(2, 12, 17, 0.34),
+    rgba(2, 8, 12, 0.06)
+  );
+  transform: translateX(-50%);
+  transition: color 140ms ease;
 }
 
 #scope-zoom {
-  position: absolute;
-  top: 75%;
-  left: 50%;
-  transform: translateX(-50%);
   color: var(--cyan);
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.48);
+}
+
+#scope-zoom::before {
+  content: "OPTIC ";
+  color: rgba(126, 197, 212, 0.68);
+  font-size: 8px;
+  letter-spacing: 0.16em;
 }
 
 #scope-hint {
-  position: absolute;
-  top: 79%;
-  left: 50%;
-  transform: translateX(-50%);
-  color: rgba(126, 151, 169, 0.8);
-  font-size: 8px;
+  margin-top: 2px;
+  color: rgba(126, 151, 169, 0.75);
+  font-family: var(--mono);
+  font-size: 7px;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px), (max-height: 520px) {
+  #scope {
+    --scope-size: min(78vmin, 460px);
+  }
+
+  #scope-readout {
+    top: calc(50% + var(--scope-radius) - 40px);
+    padding: 4px 9px 3px;
+  }
+
+  #scope-zoom {
+    font-size: 9px;
+  }
+
+  #scope-hint {
+    font-size: 6px;
+  }
 }
 
 #hud {
@@ -1979,20 +2172,25 @@ body.touch #utility-bar {
   box-shadow: 0 0 10px rgba(255, 61, 94, 1);
 }
 
-#scope.enemy #scope-reticle {
-  border-color: rgba(255, 61, 94, 0.7);
-  box-shadow:
-    inset 0 0 30px rgba(255, 61, 94, 0.12),
-    0 0 18px rgba(255, 61, 94, 0.22);
+#scope.enemy {
+  --reticle: rgba(255, 107, 132, 0.86);
+  --reticle-dim: rgba(255, 83, 112, 0.42);
+  --reticle-bright: #ffb3c1;
 }
 
-#scope.enemy #scope-reticle::before,
-#scope.enemy #scope-reticle::after {
-  background: rgba(255, 61, 94, 0.78);
+#scope.enemy #scope-lens {
+  box-shadow:
+    inset 0 0 7vmin 1.5vmin rgba(34, 0, 9, 0.58),
+    inset 0 0 2px 1px rgba(255, 103, 132, 0.42),
+    0 0 0 1px rgba(12, 2, 5, 0.95),
+    0 0 0 3px rgba(74, 24, 35, 0.9),
+    0 0 0 4px rgba(12, 3, 6, 1),
+    0 0 24px 3px rgba(255, 47, 87, 0.14);
 }
 
 #scope.enemy #scope-zoom {
   color: #ff5c7a;
+  text-shadow: 0 0 8px rgba(255, 61, 94, 0.56);
 }
 
 #orientation-gate {

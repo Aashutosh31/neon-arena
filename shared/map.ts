@@ -234,8 +234,15 @@ function openingsFor(
   ];
 }
 
-const BUILDING_X = [-34, -12.75, 12.75, 34] as const;
-const BUILDING_Z = [-34, -12.75, 12.75, 34] as const;
+export const MAP_STREET_LINES = [
+  -45.5,
+  -24.5,
+  0,
+  24.5,
+  45.5,
+] as const;
+const BUILDING_X = [-56, -35, -14, 14, 35, 56] as const;
+const BUILDING_Z = [-56, -35, -14, 14, 35, 56] as const;
 const BUILDING_NAMES = [
   "northline",
   "arcade",
@@ -253,6 +260,26 @@ const BUILDING_NAMES = [
   "loft",
   "cinema",
   "terminal",
+  "obsidian",
+  "meridian",
+  "oracle",
+  "nexus",
+  "bastion",
+  "spectre",
+  "aurora",
+  "citadel",
+  "vault",
+  "halo",
+  "phoenix",
+  "cipher",
+  "zenith",
+  "vertex",
+  "prism",
+  "ember",
+  "kestrel",
+  "monolith",
+  "beacon",
+  "riven",
 ] as const;
 const WALL_COLORS = [
   0x315570,
@@ -291,9 +318,11 @@ const BUILDINGS: readonly BuildingSpec[] = BUILDING_Z.flatMap(
   (z, zIndex) =>
     BUILDING_X.map((x, xIndex) => {
       const index = zIndex * BUILDING_X.length + xIndex;
-      const width = 13.8 + ((index * 7) % 5) * 0.65;
-      const depth = 13.2 + ((index * 11) % 5) * 0.6;
-      const height = 7.1 + ((index * 13) % 6) * 1.15;
+      const outer = Math.abs(x) > 40 || Math.abs(z) > 40;
+      const width = 13.0 + ((index * 7) % 5) * 0.55;
+      const depth = 12.6 + ((index * 11) % 5) * 0.55;
+      const height =
+        (outer ? 9.1 : 7.2) + ((index * 13) % 6) * 1.05;
       const front: Side =
         Math.abs(x) >= Math.abs(z)
           ? x <= 0
@@ -496,6 +525,54 @@ function addBuilding(spec: BuildingSpec, index: number): void {
     signWidth,
     0.72,
   );
+  for (const direction of [-1, 1]) {
+    addPanel(
+      spec.front,
+      spec,
+      direction * (signWidth / 2 + 0.55),
+      1.75,
+      spec.accentColor,
+      0.22,
+      3.7,
+    );
+  }
+
+  if (index % 2 === 0) {
+    addBox(
+      `${spec.id}-hvac`,
+      spec.x + (index % 4 === 0 ? -1 : 1) * spec.width * 0.18,
+      spec.height + 0.34,
+      spec.z + (index % 4 === 0 ? 1 : -1) * spec.depth * 0.16,
+      1.8,
+      0.85,
+      1.4,
+      0x1b3444,
+    );
+  }
+  if (index % 5 === 0) {
+    const antennaX = spec.x + (index % 2 === 0 ? 1 : -1) * spec.width * 0.34;
+    const antennaZ = spec.z + (index % 2 === 0 ? -1 : 1) * spec.depth * 0.3;
+    addBox(
+      `${spec.id}-antenna`,
+      antennaX,
+      spec.height + 0.34,
+      antennaZ,
+      0.12,
+      2.8,
+      0.12,
+      spec.accentColor,
+    );
+    addBox(
+      `${spec.id}-antenna-cross`,
+      antennaX,
+      spec.height + 2.6,
+      antennaZ,
+      1.15,
+      0.09,
+      0.09,
+      spec.accentColor,
+    );
+  }
 
   const levelSpacing = 2.45;
   let level = 3.95;
@@ -620,10 +697,10 @@ function addFountain(): void {
 
 function addPlazaCover(): void {
   const positions = [
-    [-7.2, -7.2],
-    [7.2, -7.2],
-    [-7.2, 7.2],
-    [7.2, 7.2],
+    [-5.1, -5.1],
+    [5.1, -5.1],
+    [-5.1, 5.1],
+    [5.1, 5.1],
   ] as const;
   positions.forEach(([x, z], index) => {
     addBox(
@@ -639,14 +716,18 @@ function addPlazaCover(): void {
   });
 
   const barrierSpots = [
-    [-23.4, -10, true],
-    [-23.4, 10, true],
-    [23.4, -10, true],
-    [23.4, 10, true],
-    [-10, -23.4, false],
-    [10, -23.4, false],
-    [-10, 23.4, false],
-    [10, 23.4, false],
+    [-24.5, -10.5, true],
+    [-24.5, 10.5, true],
+    [24.5, -10.5, true],
+    [24.5, 10.5, true],
+    [-10.5, -24.5, false],
+    [10.5, -24.5, false],
+    [-10.5, 24.5, false],
+    [10.5, 24.5, false],
+    [-45.5, -38, true],
+    [45.5, 38, true],
+    [-38, -45.5, false],
+    [38, 45.5, false],
   ] as const;
   barrierSpots.forEach(([x, z, vertical], index) => {
     addBox(
@@ -663,47 +744,44 @@ function addPlazaCover(): void {
 }
 
 function addStreetLights(): void {
-  const spots: readonly [number, number][] = [
-    [-3.9, -36],
-    [3.9, -36],
-    [-3.9, -18],
-    [3.9, -18],
-    [-3.9, 18],
-    [3.9, 18],
-    [-3.9, 36],
-    [3.9, 36],
-    [-36, -3.9],
-    [-36, 3.9],
-    [-18, -3.9],
-    [-18, 3.9],
-    [18, -3.9],
-    [18, 3.9],
-    [36, -3.9],
-    [36, 3.9],
-  ];
-  for (const [x, z] of spots) {
-    streetLights.push({ x, z, height: 5.8, color: 0xffb35c });
+  const along = [-45.5, -22, 22, 45.5] as const;
+  let index = 0;
+  for (const lane of MAP_STREET_LINES) {
+    for (const distance of along) {
+      const color = index % 3 === 0 ? 0x66e7ff : 0xffb35c;
+      const height = 6.1 + (index % 4) * 0.42;
+      streetLights.push({ x: lane - 3.1, z: distance, height, color });
+      streetLights.push({ x: lane + 3.1, z: distance, height, color });
+      streetLights.push({ x: distance, z: lane - 3.1, height, color });
+      streetLights.push({ x: distance, z: lane + 3.1, height, color });
+      index += 1;
+    }
   }
 }
 
 const waypoints: Vec3[] = [];
-for (const z of [-38, -24, -11, 11, 24, 38]) {
-  waypoints.push({ x: 0, y: 0, z });
-  waypoints.push({ x: -23.4, y: 0, z });
-  waypoints.push({ x: 23.4, y: 0, z });
-}
-for (const x of [-38, -24, -11, 11, 24, 38]) {
-  waypoints.push({ x, y: 0, z: 0 });
-  waypoints.push({ x, y: 0, z: -23.4 });
-  waypoints.push({ x, y: 0, z: 23.4 });
-}
-for (const x of [-43, 43]) {
-  waypoints.push({ x, y: 0, z: -23.4 });
-  waypoints.push({ x, y: 0, z: 23.4 });
-}
-for (const z of [-43, 43]) {
-  waypoints.push({ x: -23.4, y: 0, z });
-  waypoints.push({ x: 23.4, y: 0, z });
+const WAYPOINT_LINES = [
+  -61,
+  -56,
+  -45.5,
+  -35,
+  -24.5,
+  -14,
+  0,
+  14,
+  24.5,
+  35,
+  45.5,
+  56,
+  61,
+] as const;
+for (const lane of MAP_STREET_LINES) {
+  for (const distance of WAYPOINT_LINES) {
+    if (lane !== 0 || distance !== 0) {
+      waypoints.push({ x: lane, y: 0, z: distance });
+      waypoints.push({ x: distance, y: 0, z: lane });
+    }
+  }
 }
 
 addBox(
@@ -764,20 +842,28 @@ export const MAP_PICKUPS: readonly PickupSpawn[] = [
   { id: "medkit-plaza-west", kind: "medkit", x: -10, z: 0 },
   { id: "medkit-avenue-north", kind: "medkit", x: 0, z: 36 },
   { id: "medkit-avenue-south", kind: "medkit", x: 0, z: -36 },
-  { id: "medkit-street-ne", kind: "medkit", x: 23.4, z: 23.4 },
-  { id: "medkit-street-sw", kind: "medkit", x: -23.4, z: -23.4 },
+  { id: "medkit-avenue-far-north", kind: "medkit", x: 0, z: 58 },
+  { id: "medkit-avenue-far-south", kind: "medkit", x: 0, z: -58 },
+  { id: "medkit-perimeter-east", kind: "medkit", x: 45.5, z: 0 },
+  { id: "medkit-perimeter-west", kind: "medkit", x: -45.5, z: 0 },
+  { id: "medkit-street-ne", kind: "medkit", x: 24.5, z: 24.5 },
+  { id: "medkit-street-sw", kind: "medkit", x: -24.5, z: -24.5 },
   { id: "grenade-avenue-north", kind: "grenade", x: 0, z: 18 },
   { id: "grenade-avenue-south", kind: "grenade", x: 0, z: -18 },
   { id: "grenade-avenue-east", kind: "grenade", x: 18, z: 0 },
   { id: "grenade-avenue-west", kind: "grenade", x: -18, z: 0 },
-  { id: "grenade-perimeter-east", kind: "grenade", x: 36, z: 0 },
-  { id: "grenade-perimeter-west", kind: "grenade", x: -36, z: 0 },
-  { id: "armor-street-se", kind: "armor", x: 23.4, z: -23.4 },
-  { id: "armor-street-nw", kind: "armor", x: -23.4, z: 23.4 },
-  { id: "armor-street-e1", kind: "armor", x: 23.4, z: -30 },
-  { id: "armor-street-w1", kind: "armor", x: -23.4, z: 30 },
-  { id: "armor-street-s1", kind: "armor", x: 30, z: -23.4 },
-  { id: "armor-street-n1", kind: "armor", x: -30, z: 23.4 },
+  { id: "grenade-street-east", kind: "grenade", x: 24.5, z: 0 },
+  { id: "grenade-street-west", kind: "grenade", x: -24.5, z: 0 },
+  { id: "grenade-outer-north", kind: "grenade", x: 0, z: 45.5 },
+  { id: "grenade-outer-south", kind: "grenade", x: 0, z: -45.5 },
+  { id: "armor-street-se", kind: "armor", x: 24.5, z: -24.5 },
+  { id: "armor-street-nw", kind: "armor", x: -24.5, z: 24.5 },
+  { id: "armor-outer-ne", kind: "armor", x: 45.5, z: 24.5 },
+  { id: "armor-outer-sw", kind: "armor", x: -45.5, z: -24.5 },
+  { id: "armor-outer-se", kind: "armor", x: 45.5, z: -45.5 },
+  { id: "armor-outer-nw", kind: "armor", x: -45.5, z: 45.5 },
+  { id: "armor-corner-ne", kind: "armor", x: 24.5, z: 45.5 },
+  { id: "armor-corner-sw", kind: "armor", x: -24.5, z: -45.5 },
 ];
 
 export const MAP_OBJECTS: readonly MapObject[] = objects;
@@ -788,6 +874,48 @@ export const MAP_SIDEWALKS: readonly SidewalkSpec[] = sidewalks;
 export const MAP_STREETLIGHTS: readonly StreetLightSpec[] = streetLights;
 export const MAP_WAYPOINTS: readonly Vec3[] = waypoints;
 
+const COLLISION_CELL_SIZE = 8;
+const COLLISION_GRID_BIAS = 512;
+const COLLISION_GRID_STRIDE = 1024;
+const collisionGrid = new Map<number, MapObject[]>();
+
+function collisionKey(cellX: number, cellZ: number): number {
+  return (
+    (cellX + COLLISION_GRID_BIAS) * COLLISION_GRID_STRIDE +
+    (cellZ + COLLISION_GRID_BIAS)
+  );
+}
+
+function buildCollisionGrid(): void {
+  for (const object of MAP_OBJECTS) {
+    const minCellX = Math.floor(
+      (object.x - object.width / 2) / COLLISION_CELL_SIZE,
+    );
+    const maxCellX = Math.floor(
+      (object.x + object.width / 2) / COLLISION_CELL_SIZE,
+    );
+    const minCellZ = Math.floor(
+      (object.z - object.depth / 2) / COLLISION_CELL_SIZE,
+    );
+    const maxCellZ = Math.floor(
+      (object.z + object.depth / 2) / COLLISION_CELL_SIZE,
+    );
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+        const key = collisionKey(cellX, cellZ);
+        const cell = collisionGrid.get(key);
+        if (cell) {
+          cell.push(object);
+        } else {
+          collisionGrid.set(key, [object]);
+        }
+      }
+    }
+  }
+}
+
+buildCollisionGrid();
+
 export function aabbHitsMap(
   minX: number,
   minY: number,
@@ -796,7 +924,25 @@ export function aabbHitsMap(
   maxY: number,
   maxZ: number,
 ): boolean {
-  for (const object of MAP_OBJECTS) {
+  const minCellX = Math.floor(minX / COLLISION_CELL_SIZE);
+  const maxCellX = Math.floor(maxX / COLLISION_CELL_SIZE);
+  const minCellZ = Math.floor(minZ / COLLISION_CELL_SIZE);
+  const maxCellZ = Math.floor(maxZ / COLLISION_CELL_SIZE);
+  const candidates = new Set<MapObject>();
+
+  for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+      const cell = collisionGrid.get(collisionKey(cellX, cellZ));
+      if (!cell) {
+        continue;
+      }
+      for (const object of cell) {
+        candidates.add(object);
+      }
+    }
+  }
+
+  for (const object of candidates) {
     const objectMinX = object.x - object.width / 2;
     const objectMaxX = object.x + object.width / 2;
     const objectMinY = object.y;

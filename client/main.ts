@@ -47,7 +47,7 @@ const orientationFullscreenButton = document.querySelector<HTMLButtonElement>(
 const BASE_FOV = IS_TOUCH_DEVICE ? 80 : 75;
 
 const world = createWorld(canvas, IS_TOUCH_DEVICE);
-const { renderer, scene, camera } = world;
+const { scene, camera } = world;
 camera.rotation.order = "YXZ";
 
 const audio = new GameAudio();
@@ -1014,7 +1014,12 @@ function updateCamera(delta: number): void {
   const adsFov = zoomLevel?.fov ?? spec.adsFov;
   const scoped = aiming && spec.scopeOverlay === true;
   const targetFov = aiming ? adsFov : BASE_FOV;
-  const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 14, delta);
+  const nextFov = THREE.MathUtils.damp(
+    camera.fov,
+    targetFov,
+    scoped ? 18 : 14,
+    delta,
+  );
   if (Math.abs(nextFov - camera.fov) > 0.02) {
     camera.fov = nextFov;
     camera.updateProjectionMatrix();
@@ -1028,7 +1033,7 @@ function updateCamera(delta: number): void {
   );
   gun.setAiming(aiming);
   gun.update(delta);
-  gun.object.visible = !matchOver && !dead;
+  gun.object.visible = !matchOver && !dead && !scoped;
 }
 
 function animate(): void {
@@ -1155,14 +1160,14 @@ function animate(): void {
   remotes.updateVisuals(delta);
   grenades.update(delta);
   pickups.update(delta);
-  renderer.render(scene, camera);
+  world.render();
 }
 
 function onResize(): void {
   updateViewportMode();
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  world.resize(window.innerWidth, window.innerHeight);
 }
 
 const clock = new THREE.Clock();
