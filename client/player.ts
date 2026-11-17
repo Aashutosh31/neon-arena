@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   ARENA_LIMIT,
+  MAX_MOVE_SPEED,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
 } from "../shared/constants";
@@ -31,6 +32,7 @@ export class Player {
       position: this.position,
       velocity: this.velocity,
       grounded: true,
+      height: PLAYER_HEIGHT,
       accumulator: 0,
     };
     this.movementInput = {
@@ -41,6 +43,8 @@ export class Player {
       jump: false,
       yaw: 0,
       ads: false,
+      sprint: false,
+      crouch: false,
     };
 
     const geometry = new THREE.CapsuleGeometry(
@@ -179,6 +183,15 @@ export class Gun {
   private current: WeaponId = "rifle";
   private aiming = false;
   private recoil = 0;
+  private swayX = 0;
+  private swayY = 0;
+  private swayTargetX = 0;
+  private swayTargetY = 0;
+  private bobPhase = 0;
+  private motionAmount = 0;
+  private motionTarget = 0;
+  private motionGrounded = true;
+  private motionSprinting = false;
   private flashRemaining = 0;
   private reloadRemaining = 0;
   private reloadDuration = 0;
@@ -243,6 +256,31 @@ export class Gun {
     this.aiming = aiming;
   }
 
+  setMotion(
+    lookX: number,
+    lookY: number,
+    speed: number,
+    grounded: boolean,
+    sprinting: boolean,
+    crouching: boolean,
+  ): void {
+    const scale = crouching ? 0.55 : 1;
+    this.motionTarget =
+      Math.min(1.45, speed / MAX_MOVE_SPEED) *
+      (sprinting ? 1.25 : 1) *
+      scale;
+    this.motionGrounded = grounded;
+    this.motionSprinting = sprinting;
+    this.swayTargetX = Math.min(
+      0.035,
+      Math.max(-0.035, -lookX * 0.00042),
+    );
+    this.swayTargetY = Math.min(
+      0.025,
+      Math.max(-0.025, -lookY * 0.00034),
+    );
+  }
+
   reload(durationMs: number): void {
     if (this.reloadRemaining > 0) {
       return;
@@ -275,6 +313,21 @@ export class Gun {
   update(delta: number): void {
     const model = this.models.get(this.current);
     this.recoil = THREE.MathUtils.damp(this.recoil, 0, 22, delta);
+    this.motionAmount = THREE.MathUtils.damp(
+      this.motionAmount,
+      this.motionTarget,
+      9,
+      delta,
+    );
+    this.motionTarget = 0;
+    this.swayX = THREE.MathUtils.damp(this.swayX, this.swayTargetX, 11, delta);
+    this.swayY = THREE.MathUtils.damp(this.swayY, this.swayTargetY, 11, delta);
+    this.swayTargetX = 0;
+    this.swayTargetY = 0;
+    const bobRate = this.motionSprinting ? 12.5 : 8.5;
+    if (this.motionAmount > 0.02 && this.motionGrounded) {
+      this.bobPhase += delta * bobRate;
+    }
     if (this.flashRemaining > 0) {
       this.flashRemaining -= delta;
       if (this.flashRemaining <= 0 && model) {
@@ -322,17 +375,24 @@ export class Gun {
     const reloadDip = Math.sin(reloadRatio * Math.PI) * 0.16;
     const switchDip = this.switchRemaining * 0.9;
 
+    const swayScale = this.aiming ? 0.28 : 1;
+    const groundedScale = this.motionGrounded ? 1 : 0.35;
+    const bobX =
+      Math.cos(this.bobPhase) * 0.012 * this.motionAmount * groundedScale;
+    const bobY =
+      Math.sin(this.bobPhase * 2) * 0.011 * this.motionAmount * groundedScale;
+
     const blend = this.aiming ? 0.24 : 0.18;
     this.object.position.x = THREE.MathUtils.lerp(
       this.object.position.x,
       targetX,
       blend,
-    );
+    ) + this.swayX * swayScale + bobX;
     this.object.position.y = THREE.MathUtils.lerp(
       this.object.position.y,
       target.y - reloadDip - switchDip,
       blend,
-    );
+    ) + this.swayY * swayScale + bobY;
     this.object.position.z = THREE.MathUtils.lerp(
       this.object.position.z,
       targetZ + this.recoil * 0.15,
@@ -340,9 +400,11 @@ export class Gun {
     );
 
     this.euler.set(
-      this.recoil * 0.21 - reloadDip * 0.8,
-      this.aiming ? 0 : -0.055,
-      this.aiming ? 0 : -0.02 - this.recoil * 0.025,
+      this.recoil * 0.21 - reloadDip * 0.8 + this.swayY * 0.9,
+      (this.aiming ? 0 : -0.055) + this.swayX * 0.9,
+      (this.aiming ? 0 : -0.02) -
+        this.recoil * 0.025 -
+        this.swayX * 1.2,
     );
     this.object.quaternion.setFromEuler(this.euler);
   }

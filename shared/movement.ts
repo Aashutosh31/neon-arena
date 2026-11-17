@@ -1,6 +1,8 @@
 import {
   AIR_ACCELERATION,
   AIR_FRICTION,
+  CROUCH_HEIGHT,
+  CROUCH_SPEED_MULTIPLIER,
   GRAVITY,
   GROUND_ACCELERATION,
   GROUND_FRICTION,
@@ -13,6 +15,7 @@ import {
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
   SIMULATION_STEP,
+  SPRINT_SPEED_MULTIPLIER,
 } from "./constants";
 import { MAP_OBJECTS, type MapObject } from "./map";
 import type { MovementInput, MovementState } from "./types";
@@ -72,6 +75,16 @@ function stepMovement(
   const speedMultiplier = modifiers.speedMultiplier ?? 1;
   const gravityMultiplier = modifiers.gravityMultiplier ?? 1;
 
+  if (input.crouch) {
+    state.height = CROUCH_HEIGHT;
+  } else if (state.height < PLAYER_HEIGHT) {
+    const crouchedHeight = state.height;
+    state.height = PLAYER_HEIGHT;
+    if (findOverlappingObject(state)) {
+      state.height = crouchedHeight;
+    }
+  }
+
   if (input.jump && state.grounded) {
     state.velocity.y = JUMP_STRENGTH;
     state.grounded = false;
@@ -114,7 +127,14 @@ function stepMovement(
       ? AIR_ACCELERATION
       : AIR_FRICTION;
 
-  const targetSpeed = MAX_MOVE_SPEED * (input.ads ? 0.52 : 1) * speedMultiplier;
+  let targetSpeed = MAX_MOVE_SPEED * speedMultiplier;
+  if (input.ads) {
+    targetSpeed *= 0.52;
+  } else if (input.crouch) {
+    targetSpeed *= CROUCH_SPEED_MULTIPLIER;
+  } else if (input.sprint && forwardInput > 0) {
+    targetSpeed *= SPRINT_SPEED_MULTIPLIER;
+  }
 
   state.velocity.x = damp(
     state.velocity.x,
@@ -212,7 +232,7 @@ function moveAxisY(state: MovementState, amount: number): void {
   }
 
   const oldMinY = state.position.y;
-  const oldMaxY = oldMinY + PLAYER_HEIGHT;
+  const oldMaxY = oldMinY + state.height;
   state.position.y += amount;
 
   let landingY = -Infinity;
@@ -230,7 +250,7 @@ function moveAxisY(state: MovementState, amount: number): void {
       if (
         oldMinY >= objectMaxY - 0.0001 &&
         state.position.y < objectMaxY &&
-        state.position.y + PLAYER_HEIGHT > objectMinY
+        state.position.y + state.height > objectMinY
       ) {
         if (objectMaxY > landingY) {
           landingY = objectMaxY;
@@ -241,7 +261,7 @@ function moveAxisY(state: MovementState, amount: number): void {
 
     if (
       oldMaxY <= objectMinY + 0.0001 &&
-      state.position.y + PLAYER_HEIGHT > objectMinY &&
+      state.position.y + state.height > objectMinY &&
       state.position.y < objectMaxY
     ) {
       if (objectMinY < ceilingY) {
@@ -258,7 +278,7 @@ function moveAxisY(state: MovementState, amount: number): void {
   }
 
   if (ceilingY < Infinity) {
-    state.position.y = ceilingY - PLAYER_HEIGHT;
+    state.position.y = ceilingY - state.height;
     state.velocity.y = 0;
   }
 }
@@ -305,7 +325,7 @@ function overlapsObject(
     state.position.x + PLAYER_HALF_WIDTH >
       object.x - object.width / 2 &&
     state.position.y < object.y + object.height &&
-    state.position.y + PLAYER_HEIGHT > object.y &&
+    state.position.y + state.height > object.y &&
     state.position.z - PLAYER_HALF_DEPTH <
       object.z + object.depth / 2 &&
     state.position.z + PLAYER_HALF_DEPTH >

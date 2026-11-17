@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { io, type Socket } from "socket.io-client";
 import "./style.css";
 import {
+  CROUCH_EYE_HEIGHT,
   EYE_HEIGHT,
   MATCH_RESTART_MS,
   MAX_HEALTH,
@@ -92,12 +93,22 @@ let lastWeapon: WeaponId = "rifle";
 let scopeIndex = 0;
 let lastShotAt = 0;
 let triggerWasDown = false;
+let recoilPitch = 0;
+let recoilYaw = 0;
+let bobPhase = 0;
+let bobAmount = 0;
+let stepDistance = 0;
+let lastStepX = 0;
+let lastStepZ = 0;
+let wasGrounded = true;
 let lastInputSentAt = 0;
 let inputSequence = 0;
 let lastPingAt = 0;
 let pingInFlight = false;
 let hasLockedOnce = false;
 let lastDelta = 1 / 60;
+let frameLookX = 0;
+let frameLookY = 0;
 
 const targetVector = new THREE.Vector3();
 const lookDirection = new THREE.Vector3();
@@ -654,6 +665,12 @@ function handleLocalRespawn(player: PlayerState): void {
   localPlayer.reset(player.position);
   yaw = player.rotation.y;
   pitch = 0;
+  recoilPitch = 0;
+  recoilYaw = 0;
+  stepDistance = 0;
+  lastStepX = player.position.x;
+  lastStepZ = player.position.z;
+  wasGrounded = true;
   lastWeapon = player.weapon;
   gun.setWeapon(player.weapon);
   resetScopeIndex(player.weapon);
@@ -819,6 +836,12 @@ function attemptShoot(): void {
   }
 
   camera.getWorldDirection(lookDirection);
+  const recoilSpec = WEAPONS[local.weapon];
+  const recoilScale = input.isAiming() ? 0.72 : 1;
+  const recoilKick =
+    recoilSpec.recoil * 0.012 * recoilScale * (0.88 + Math.random() * 0.24);
+  recoilPitch += recoilKick;
+  recoilYaw += (Math.random() - 0.5) * recoilKick * 0.62;
   gun.fire();
   audio.playShoot(local.weapon);
   effects.fireLocal(camera.position, lookDirection, remotes, local.weapon);
@@ -859,6 +882,8 @@ function sendInput(now: number): void {
     yaw,
     pitch,
     ads: input.isAiming(),
+    sprint: input.isSprinting(),
+    crouch: input.isCrouching(),
     sequence: inputSequence + 1,
     delta: elapsed,
   };
@@ -956,6 +981,10 @@ function leaveToMenu(): void {
   localPlayer.reset({ x: 0, y: 0, z: 10 });
   yaw = 0;
   pitch = 0;
+  recoilPitch = 0;
+  recoilYaw = 0;
+  stepDistance = 0;
+  wasGrounded = true;
   document.body.classList.remove("playing");
   hud.showMenu();
   hud.hideDeath();
@@ -974,6 +1003,9 @@ function updateCamera(delta: number): void {
     hud.setEnemyTarget(false);
     hud.setAiming(false, false);
     hud.setCompass(yaw);
+    recoilPitch = 0;
+    recoilYaw = 0;
+    bobAmount = 0;
     if (camera.fov !== BASE_FOV) {
       camera.fov = BASE_FOV;
       camera.updateProjectionMatrix();
@@ -981,15 +1013,43 @@ function updateCamera(delta: number): void {
     return;
   }
 
+  recoilPitch = THREE.MathUtils.damp(recoilPitch, 0, 11, delta);
+  recoilYaw = THREE.MathUtils.damp(recoilYaw, 0, 11, delta);
+
   const local = localState();
+  const canControl = active && !paused && !matchOver && !dead;
+  const aiming =
+    !paused && !matchOver && !dead && input.isAiming();
+  const movingInput =
+    canControl &&
+    local !== null &&
+    local.grounded &&
+    (input.isMovingForward() ||
+      input.isMovingBackward() ||
+      input.isMovingLeft() ||
+      input.isMovingRight());
+  const sprinting = movingInput && input.isSprinting() && !aiming;
+  const crouching = local?.crouching === true || input.isCrouching();
+  const targetBob = movingInput
+    ? (sprinting ? 1.35 : 1) * (crouching ? 0.4 : 1)
+    : 0;
+  bobAmount = THREE.MathUtils.damp(bobAmount, targetBob, 8, delta);
+  if (movingInput) {
+    bobPhase += delta * (sprinting ? 12.5 : 8.5) * (crouching ? 0.75 : 1);
+  }
+  const bobScale = aiming ? 0.18 : 1;
+  const bobY = Math.sin(bobPhase * 2) * 0.017 * bobAmount * bobScale;
+  const bobX = Math.sin(bobPhase) * 0.007 * bobAmount * bobScale;
+
   if (local) {
+    const eyeHeight = crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
     camera.position.set(
-      localPlayer.position.x,
-      localPlayer.position.y + EYE_HEIGHT,
+      localPlayer.position.x + bobX,
+      localPlayer.position.y + eyeHeight + bobY,
       localPlayer.position.z,
     );
   }
-  camera.rotation.set(pitch, yaw, 0, "YXZ");
+  camera.rotation.set(pitch + recoilPitch, yaw + recoilYaw, 0, "YXZ");
   hud.setCompass(yaw);
 
   if (local) {
@@ -1007,13 +1067,11 @@ function updateCamera(delta: number): void {
     hud.setEnemyTarget(false);
   }
 
-  const aiming =
-    !paused && !matchOver && !dead && input.isAiming();
   const spec = WEAPONS[lastWeapon];
   const zoomLevel = spec.zoomLevels?.[scopeIndex];
   const adsFov = zoomLevel?.fov ?? spec.adsFov;
   const scoped = aiming && spec.scopeOverlay === true;
-  const targetFov = aiming ? adsFov : BASE_FOV;
+  const targetFov = aiming ? adsFov : sprinting ? BASE_FOV + 2.5 : BASE_FOV;
   const nextFov = THREE.MathUtils.damp(
     camera.fov,
     targetFov,
@@ -1031,7 +1089,41 @@ function updateCamera(delta: number): void {
     zoomLevel?.label ?? "",
     (spec.zoomLevels?.length ?? 0) > 1,
   );
+  if (local && local.health > 0) {
+    const stepX = localPlayer.position.x - lastStepX;
+    const stepZ = localPlayer.position.z - lastStepZ;
+    const stepped = Math.hypot(stepX, stepZ);
+    if (local.grounded && movingInput && stepped < 3) {
+      stepDistance += stepped;
+      const stride = sprinting ? 2.15 : crouching ? 1.15 : 1.5;
+      if (stepDistance >= stride) {
+        stepDistance = 0;
+        audio.playFootstep(sprinting);
+      }
+    } else if (!local.grounded || !movingInput) {
+      stepDistance = 0;
+    }
+    if (local.grounded && !wasGrounded) {
+      audio.playLand(1);
+    }
+    wasGrounded = local.grounded;
+  } else {
+    stepDistance = 0;
+    wasGrounded = true;
+  }
+  lastStepX = localPlayer.position.x;
+  lastStepZ = localPlayer.position.z;
+
   gun.setAiming(aiming);
+  const movementSpeed = movingInput ? (sprinting ? 8 : 5) : 0;
+  gun.setMotion(
+    frameLookX,
+    frameLookY,
+    movementSpeed,
+    local?.grounded !== false,
+    sprinting,
+    crouching,
+  );
   gun.update(delta);
   gun.object.visible = !matchOver && !dead && !scoped;
 }
@@ -1043,12 +1135,16 @@ function animate(): void {
   const now = performance.now();
   const canControl =
     active && !paused && !matchOver && !dead && !searchMode;
+  frameLookX = 0;
+  frameLookY = 0;
 
   if (canControl) {
     if (input.consumeQuickTurn()) {
       yaw += Math.PI;
     }
     const look = input.consumeLookDelta();
+    frameLookX = look.x;
+    frameLookY = look.y;
     if (look.x !== 0 || look.y !== 0) {
       const zoomScale = THREE.MathUtils.clamp(
         camera.fov / BASE_FOV,
@@ -1111,6 +1207,8 @@ function animate(): void {
           jump: input.isJumping(),
           yaw,
           ads: input.isAiming(),
+          sprint: input.isSprinting(),
+          crouch: input.isCrouching(),
         },
         0,
         Date.now(),

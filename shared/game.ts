@@ -5,7 +5,6 @@ import {
   ARENA_LIMIT,
   BOT_COUNT,
   BOT_DAMAGE_MULTIPLIER,
-  EYE_HEIGHT,
   GRENADE_COOLDOWN_MS,
   GRENADE_FUSE_MS,
   GRENADE_MAX_DAMAGE,
@@ -19,14 +18,17 @@ import {
   MAX_HEALTH,
   MAX_MATCH_PLAYERS,
   MAX_MEDKITS,
+  MAX_MOVE_SPEED,
   MAX_NAME_LENGTH,
   MEDKIT_HEAL,
   PICKUP_RADIUS,
   PICKUP_RESPAWN_MS,
+  PLAYER_HEIGHT,
   RESPAWN_TIME,
   SPAWN_ARMOR,
   START_GRENADES,
   START_MEDKITS,
+  eyeHeightForHeight,
 } from "./constants";
 import {
   castShot,
@@ -115,6 +117,7 @@ interface SimPlayer {
   weapons: Record<WeaponId, WeaponAmmo>;
   velocity: Vec3;
   grounded: boolean;
+  height: number;
   accumulator: number;
   input: MovementInput;
   lastInputSequence: number;
@@ -195,6 +198,8 @@ const EMPTY_INPUT: MovementInput = {
   jump: false,
   yaw: 0,
   ads: false,
+  sprint: false,
+  crouch: false,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -305,6 +310,7 @@ function emptyPlayer(
     weapons: createAmmo(),
     velocity: { x: 0, y: 0, z: 0 },
     grounded: true,
+    height: PLAYER_HEIGHT,
     accumulator: 0,
     input: { ...EMPTY_INPUT, yaw },
     lastInputSequence: 0,
@@ -450,6 +456,8 @@ export class GameSimulation {
     player.input.right = input.right === true;
     player.input.jump = input.jump === true;
     player.input.ads = input.ads === true;
+    player.input.sprint = input.sprint === true && input.ads !== true;
+    player.input.crouch = input.crouch === true;
     player.input.yaw = Number.isFinite(input.yaw) ? input.yaw : player.input.yaw;
     player.rotation.y = player.input.yaw;
     player.lastInputAt = now;
@@ -530,7 +538,7 @@ export class GameSimulation {
 
     const origin = {
       x: player.position.x + normalized.x * 0.4,
-      y: player.position.y + EYE_HEIGHT - 0.12,
+      y: player.position.y + eyeHeightForHeight(player.height) - 0.12,
       z: player.position.z + normalized.z * 0.4,
     };
     const velocity = {
@@ -594,13 +602,23 @@ export class GameSimulation {
 
     const origin: Vec3 = {
       x: player.position.x,
-      y: player.position.y + EYE_HEIGHT,
+      y: player.position.y + eyeHeightForHeight(player.height),
       z: player.position.z,
     };
 
     this.events.onShot?.(player.id, origin, normalized, player.weapon);
 
-    const spread = spec.spreadRad * (player.input.ads ? spec.adsSpreadMultiplier : 1);
+    const horizontalSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+    const movementSpread =
+      1 + Math.min(horizontalSpeed / MAX_MOVE_SPEED, 1.5) * 0.62;
+    const airSpread = player.grounded ? 1 : 1.85;
+    const stanceSpread = player.height < PLAYER_HEIGHT - 0.01 ? 0.72 : 1;
+    const spread =
+      spec.spreadRad *
+      (player.input.ads ? spec.adsSpreadMultiplier : 1) *
+      movementSpread *
+      airSpread *
+      stanceSpread;
     const damageByTarget = new Map<string, { damage: number; headshot: boolean }>();
 
     for (let pellet = 0; pellet < spec.pellets; pellet += 1) {
@@ -687,6 +705,8 @@ export class GameSimulation {
         player.input.right = false;
         player.input.jump = false;
         player.input.ads = false;
+        player.input.sprint = false;
+        player.input.crouch = false;
       }
 
       if (player.health <= 0) {
@@ -925,6 +945,8 @@ export class GameSimulation {
       ammo: ammo.ammo,
       reserveAmmo: ammo.reserve,
       reloading: player.reloadEndsAt > 0 && now < player.reloadEndsAt,
+      crouching: player.height < PLAYER_HEIGHT - 0.01,
+      grounded: player.grounded,
     };
   }
 
@@ -966,6 +988,7 @@ export class GameSimulation {
     player.rotation = { x: 0, y: spawn.yaw, z: 0 };
     player.velocity = { x: 0, y: 0, z: 0 };
     player.grounded = true;
+    player.height = PLAYER_HEIGHT;
     player.accumulator = 0;
     player.health = MAX_HEALTH;
     player.armor = SPAWN_ARMOR;
@@ -1023,6 +1046,7 @@ export class GameSimulation {
       player.rotation = { x: 0, y: spawn.yaw, z: 0 };
       player.velocity = { x: 0, y: 0, z: 0 };
       player.grounded = true;
+      player.height = PLAYER_HEIGHT;
       player.accumulator = 0;
       player.input = { ...EMPTY_INPUT, yaw: spawn.yaw };
       player.lastInputAt = now;
@@ -1105,7 +1129,7 @@ export class GameSimulation {
 
     const eye: Vec3 = {
       x: player.position.x,
-      y: player.position.y + EYE_HEIGHT,
+      y: player.position.y + eyeHeightForHeight(player.height),
       z: player.position.z,
     };
     const target = this.pickBotTarget(player);
@@ -1129,6 +1153,8 @@ export class GameSimulation {
       player.input.right = false;
       player.input.jump = false;
       player.input.ads = false;
+      player.input.crouch = false;
+      player.input.sprint = true;
       player.input.yaw = Math.atan2(
         -(waypoint.x - player.position.x),
         -(waypoint.z - player.position.z),
@@ -1138,7 +1164,7 @@ export class GameSimulation {
 
     const targetEye: Vec3 = {
       x: target.position.x,
-      y: target.position.y + 1.18,
+      y: target.position.y + eyeHeightForHeight(target.height) - 0.42,
       z: target.position.z,
     };
     if (target.id !== player.bot.targetId) {
@@ -1157,6 +1183,8 @@ export class GameSimulation {
     player.input.backward = false;
     player.input.ads = visible && distance > 14;
     player.input.jump = false;
+    player.input.crouch = false;
+    player.input.sprint = distance > 18 && !visible;
 
     if (now >= player.bot.nextThinkAt) {
       player.bot.nextThinkAt = now + 240 + Math.random() * 320;
@@ -1261,12 +1289,12 @@ export class GameSimulation {
       }
       const eye: Vec3 = {
         x: player.position.x,
-        y: player.position.y + EYE_HEIGHT,
+        y: player.position.y + eyeHeightForHeight(player.height),
         z: player.position.z,
       };
       const targetEye: Vec3 = {
         x: candidate.position.x,
-        y: candidate.position.y + EYE_HEIGHT,
+        y: candidate.position.y + eyeHeightForHeight(candidate.height),
         z: candidate.position.z,
       };
       const visible = hasLineOfSight(eye, targetEye, this.mapObjects);

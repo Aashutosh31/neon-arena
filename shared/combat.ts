@@ -11,6 +11,8 @@ export interface CombatTarget {
   team: TeamId;
   health: number;
   position: Vec3;
+  /** Current collision height; crouched targets expose a smaller profile. */
+  height?: number;
 }
 
 export interface PlayerRayHit {
@@ -27,8 +29,9 @@ export function rayPlayerDistance(
   const hitRadius = PLAYER_RADIUS + 0.14;
   const offsetX = origin.x - player.position.x;
   const offsetZ = origin.z - player.position.z;
+  const targetHeight = player.height ?? PLAYER_HEIGHT;
   const yMin = player.position.y;
-  const yMax = player.position.y + PLAYER_HEIGHT;
+  const yMax = player.position.y + targetHeight;
 
   const a = direction.x * direction.x + direction.z * direction.z;
   const b = 2 * (offsetX * direction.x + offsetZ * direction.z);
@@ -91,7 +94,9 @@ export function rayPlayerDistance(
   return {
     playerId: player.id,
     distance: nearest,
-    headshot: hitY >= player.position.y + HEAD_HEIGHT,
+    headshot:
+      hitY >=
+      player.position.y + targetHeight - (PLAYER_HEIGHT - HEAD_HEIGHT),
   };
 }
 

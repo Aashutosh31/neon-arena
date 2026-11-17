@@ -10,6 +10,7 @@ export class InputManager {
   private readonly keys = new Set<string>();
   private shooting = false;
   private aiming = false;
+  private crouching = false;
   private enabled = false;
   private moveX = 0;
   private moveY = 0;
@@ -34,6 +35,8 @@ export class InputManager {
     document.querySelector<HTMLButtonElement>("#touch-ads");
   private readonly jumpButton =
     document.querySelector<HTMLButtonElement>("#touch-jump");
+  private readonly crouchButton =
+    document.querySelector<HTMLButtonElement>("#touch-crouch");
   private readonly reloadButton =
     document.querySelector<HTMLButtonElement>("#touch-reload");
   private readonly switchButton =
@@ -81,6 +84,9 @@ export class InputManager {
     });
     this.bindHold(this.adsButton, (held) => {
       this.aiming = held;
+    });
+    this.bindHold(this.crouchButton, (held) => {
+      this.crouching = held;
     });
     this.bindPress(this.jumpButton, () => {
       this.keys.add("Space");
@@ -386,6 +392,22 @@ export class InputManager {
     return this.aiming;
   }
 
+  isSprinting(): boolean {
+    return (
+      this.keys.has("ShiftLeft") ||
+      this.keys.has("ShiftRight") ||
+      Math.hypot(this.moveX, this.moveY) > 0.92
+    );
+  }
+
+  isCrouching(): boolean {
+    return (
+      this.crouching ||
+      this.keys.has("ControlLeft") ||
+      this.keys.has("ControlRight")
+    );
+  }
+
   consumeLookDelta(): { x: number; y: number } {
     const delta = { x: this.lookX, y: this.lookY };
     this.lookX = 0;
@@ -439,6 +461,7 @@ export class InputManager {
     this.keys.clear();
     this.shooting = false;
     this.aiming = false;
+    this.crouching = false;
     this.moveX = 0;
     this.moveY = 0;
     this.lookX = 0;

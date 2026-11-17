@@ -23,6 +23,13 @@ export const PLAYER_HALF_DEPTH = PLAYER_DEPTH / 2;
 export const PLAYER_RADIUS = PLAYER_WIDTH / 2;
 export const EYE_HEIGHT = 1.6;
 export const HEAD_HEIGHT = PLAYER_HEIGHT - 0.34;
+export const CROUCH_HEIGHT = 1.25;
+export const CROUCH_EYE_HEIGHT = 1.08;
+
+/** Eye height for a collision height, scaled from the standing rig. */
+export function eyeHeightForHeight(height: number): number {
+  return (height / PLAYER_HEIGHT) * EYE_HEIGHT;
+}
 
 /*
  * The arena interior is 136x136. This is the maximum player-center coordinate;
@@ -38,6 +45,8 @@ export const MAX_FALL_SPEED = -40;
 export const MAX_STEP_HEIGHT = 0.45;
 
 export const MAX_MOVE_SPEED = 6;
+export const SPRINT_SPEED_MULTIPLIER = 1.38;
+export const CROUCH_SPEED_MULTIPLIER = 0.46;
 
 // Damping rates (1/s) used for acceleration and friction; higher = snappier.
 export const GROUND_ACCELERATION = 20;

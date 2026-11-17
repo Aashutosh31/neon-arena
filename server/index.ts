@@ -359,6 +359,8 @@ io.on("connection", (socket) => {
     const right = readBoolean(payload?.right);
     const jump = readBoolean(payload?.jump);
     const ads = readBoolean(payload?.ads);
+    const sprint = readBoolean(payload?.sprint);
+    const crouch = readBoolean(payload?.crouch);
 
     if (
       sequence === null ||
@@ -373,14 +375,16 @@ io.on("connection", (socket) => {
       left === null ||
       right === null ||
       jump === null ||
-      ads === null
+      ads === null ||
+      sprint === null ||
+      crouch === null
     ) {
       return;
     }
 
     match.game.setInput(
       socket.id,
-      { forward, backward, left, right, jump, yaw, ads },
+      { forward, backward, left, right, jump, yaw, ads, sprint, crouch },
       sequence,
       Date.now(),
     );

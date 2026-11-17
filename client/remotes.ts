@@ -1,10 +1,12 @@
 import * as THREE from "three";
+import { CROUCH_HEIGHT, PLAYER_HEIGHT } from "../shared/constants";
 import type { PlayerState, TeamId } from "../shared/types";
 
 interface RemotePlayer {
   group: THREE.Group;
   targetPosition: THREE.Vector3;
   targetQuaternion: THREE.Quaternion;
+  targetScaleY: number;
 }
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
@@ -197,6 +199,8 @@ export class RemoteManager {
       WORLD_UP,
       state.rotation.y,
     );
+    remote.targetScaleY =
+      1.04 * (state.crouching ? CROUCH_HEIGHT / PLAYER_HEIGHT : 1);
     this.setAlive(remote, state.health > 0);
   }
 
@@ -211,8 +215,11 @@ export class RemoteManager {
       WORLD_UP,
       state.rotation.y,
     );
+    remote.targetScaleY =
+      1.04 * (state.crouching ? CROUCH_HEIGHT / PLAYER_HEIGHT : 1);
     remote.group.position.copy(remote.targetPosition);
     remote.group.quaternion.copy(remote.targetQuaternion);
+    remote.group.scale.y = remote.targetScaleY;
     this.setAlive(remote, true);
   }
 
@@ -249,6 +256,11 @@ export class RemoteManager {
     for (const remote of this.players.values()) {
       remote.group.position.lerp(remote.targetPosition, blend);
       remote.group.quaternion.slerp(remote.targetQuaternion, blend);
+      remote.group.scale.y = THREE.MathUtils.lerp(
+        remote.group.scale.y,
+        remote.targetScaleY,
+        blend,
+      );
     }
   }
 
@@ -330,6 +342,7 @@ export class RemoteManager {
       group,
       targetPosition: group.position.clone(),
       targetQuaternion,
+      targetScaleY: 1.04,
     };
     this.players.set(state.id, remote);
     this.groups.add(group);

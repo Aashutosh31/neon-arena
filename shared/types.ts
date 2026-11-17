@@ -49,6 +49,8 @@ export interface PlayerState {
   ammo: number;
   reserveAmmo: number;
   reloading: boolean;
+  crouching: boolean;
+  grounded: boolean;
 }
 
 /**
@@ -63,8 +65,12 @@ export interface MovementInput {
   jump: boolean;
   /** Horizontal look angle in radians. */
   yaw: number;
-  /** Aiming down sights reduces weapon spread. */
+  /** Aiming down sights reduces weapon spread and movement speed. */
   ads: boolean;
+  /** Hold to sprint; disabled while aiming. */
+  sprint: boolean;
+  /** Hold to crouch, shrinking the collision box and lowering the camera. */
+  crouch: boolean;
 }
 
 /** Mutable movement state shared by client prediction and server simulation. */
@@ -72,6 +78,8 @@ export interface MovementState {
   position: Vec3;
   velocity: Vec3;
   grounded: boolean;
+  /** Current collision height, smoothly controlled by crouch input. */
+  height: number;
   /**
    * Carries unused time between calls so physics always advances in fixed
    * SIMULATION_STEP increments. Local only; never sent over the network.
@@ -80,13 +88,12 @@ export interface MovementState {
 }
 
 /** Client -> server input sample, throttled to 20hz. */
-export interface PlayerInputPayload extends Omit<MovementInput, "ads"> {
+export interface PlayerInputPayload extends MovementInput {
   sequence: number;
   /** Client frame time in seconds; validated but not trusted for authority. */
   delta: number;
   /** Vertical look angle in radians, used for server-side rotation state. */
   pitch: number;
-  ads: boolean;
 }
 
 export interface GrenadeState {

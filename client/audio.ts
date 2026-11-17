@@ -317,6 +317,49 @@ function synthExplosion(): Float32Array {
   return samples;
 }
 
+function synthFootstep(): Float32Array {
+  const duration = 0.13;
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+  let noise = 0;
+  let seed = 0x7c1d3a5f;
+
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const white = (seed / 0x7fffffff) * 2 - 1;
+    noise = noise * 0.82 + white * 0.18;
+    const thud =
+      Math.sin(2 * Math.PI * (105 - 42 * (t / duration)) * t) *
+      Math.exp(-42 * t);
+    samples[i] =
+      (noise * 0.22 + thud * 0.5) * Math.exp(-30 * t);
+  }
+
+  return samples;
+}
+
+function synthLand(): Float32Array {
+  const duration = 0.22;
+  const length = Math.round(SAMPLE_RATE * duration);
+  const samples = new Float32Array(length);
+  let noise = 0;
+  let seed = 0x3f5a7c91;
+
+  for (let i = 0; i < length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const white = (seed / 0x7fffffff) * 2 - 1;
+    noise = noise * 0.78 + white * 0.22;
+    const thud =
+      Math.sin(2 * Math.PI * (74 - 30 * (t / duration)) * t) *
+      Math.exp(-16 * t);
+    samples[i] = (noise * 0.28 + thud * 0.72) * Math.exp(-12 * t);
+  }
+
+  return samples;
+}
+
 function synthPickup(): Float32Array {
   const duration = 0.16;
   const length = Math.round(SAMPLE_RATE * duration);
@@ -364,6 +407,8 @@ export class GameAudio {
   private readonly grenadeThrow: HTMLAudioElement;
   private readonly explosion: HTMLAudioElement;
   private readonly pickup: HTMLAudioElement;
+  private readonly footstep: HTMLAudioElement;
+  private readonly land: HTMLAudioElement;
 
   constructor() {
     for (const weapon of WEAPON_ORDER) {
@@ -387,6 +432,8 @@ export class GameAudio {
     this.grenadeThrow = createAudio(encodeWav(synthClick(210, 0.07)), 0.16);
     this.explosion = createAudio(encodeWav(synthExplosion()), 0.5);
     this.pickup = createAudio(encodeWav(synthPickup()), 0.2);
+    this.footstep = createAudio(encodeWav(synthFootstep()), 0.15);
+    this.land = createAudio(encodeWav(synthLand()), 0.3);
   }
 
   playShoot(weapon: WeaponId): void {
@@ -437,6 +484,19 @@ export class GameAudio {
 
   playPickup(): void {
     this.play(this.pickup);
+  }
+
+  playFootstep(sprinting = false): void {
+    this.footstep.playbackRate =
+      (sprinting ? 1.12 : 0.96) + (Math.random() - 0.5) * 0.12;
+    this.footstep.volume = sprinting ? 0.22 : 0.15;
+    this.play(this.footstep);
+  }
+
+  playLand(impact = 1): void {
+    this.land.playbackRate = 0.94 + Math.random() * 0.08;
+    this.land.volume = Math.min(0.4, Math.max(0.16, 0.16 + impact * 0.16));
+    this.play(this.land);
   }
 
   private play(audio: HTMLAudioElement): void {
