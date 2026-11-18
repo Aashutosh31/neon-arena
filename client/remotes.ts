@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CROUCH_HEIGHT, PLAYER_HEIGHT } from "../shared/constants";
 import type { PlayerState, TeamId } from "../shared/types";
+import { mergeStaticMeshes } from "./merge";
 
 interface RemotePlayer {
   group: THREE.Group;
@@ -331,6 +332,7 @@ export class RemoteManager {
     ring.position.y = 0.03;
     group.add(ring);
     group.scale.setScalar(1.04);
+    mergeStaticMeshes(group);
 
     group.position.set(
       state.position.x,

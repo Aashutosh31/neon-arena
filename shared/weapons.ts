@@ -48,6 +48,10 @@ export interface WeaponSpec {
   /** Full-screen optic overlay when aiming. */
   scopeOverlay?: boolean;
   recoil: number;
+  /** Horizontal kick multipliers applied shot-by-shot through a burst. */
+  recoilPattern: readonly number[];
+  /** Extra vertical climb added for each consecutive shot in a burst. */
+  recoilRise: number;
   accent: number;
   hudColor: string;
 }
@@ -74,6 +78,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     automatic: true,
     adsFov: 58,
     recoil: 0.58,
+    recoilPattern: [0.18, -0.34, 0.48, -0.56, 0.62, -0.48, 0.3],
+    recoilRise: 1.032,
     accent: 0x00e5ff,
     hudColor: "#00e5ff",
   },
@@ -98,6 +104,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     automatic: true,
     adsFov: 64,
     recoil: 0.34,
+    recoilPattern: [0.24, -0.38, 0.46, -0.5, 0.42, -0.3],
+    recoilRise: 1.022,
     accent: 0xffd166,
     hudColor: "#ffd166",
   },
@@ -122,6 +130,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     automatic: false,
     adsFov: 68,
     recoil: 1.05,
+    recoilPattern: [0.08, -0.14],
+    recoilRise: 1,
     accent: 0xff8c42,
     hudColor: "#ff8c42",
   },
@@ -152,6 +162,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     ],
     scopeOverlay: true,
     recoil: 1.35,
+    recoilPattern: [0.04],
+    recoilRise: 1,
     accent: 0xff3d81,
     hudColor: "#ff3d81",
   },
@@ -181,6 +193,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     ],
     scopeOverlay: true,
     recoil: 0.9,
+    recoilPattern: [0.1, -0.16, 0.2],
+    recoilRise: 1.012,
     accent: 0x7dffc4,
     hudColor: "#7dffc4",
   },
@@ -209,6 +223,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
       { fov: 44, label: "2X" },
     ],
     recoil: 0.8,
+    recoilPattern: [0.16, -0.24, 0.3, -0.36, 0.4, -0.32, 0.2],
+    recoilRise: 1.026,
     accent: 0xc084fc,
     hudColor: "#c084fc",
   },
@@ -233,6 +249,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     automatic: false,
     adsFov: 62,
     recoil: 0.45,
+    recoilPattern: [0.14, -0.2, 0.24],
+    recoilRise: 1.012,
     accent: 0xb6ff5c,
     hudColor: "#b6ff5c",
   },
@@ -257,6 +275,8 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     automatic: false,
     adsFov: 58,
     recoil: 1.2,
+    recoilPattern: [0.16, -0.22],
+    recoilRise: 1,
     accent: 0xe5f2ff,
     hudColor: "#e5f2ff",
   },

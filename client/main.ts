@@ -52,12 +52,7 @@ const { scene, camera } = world;
 camera.rotation.order = "YXZ";
 
 const audio = new GameAudio();
-const effects = new CombatEffects(
-  scene,
-  world.staticMeshes,
-  audio,
-  IS_TOUCH_DEVICE,
-);
+const effects = new CombatEffects(scene, audio, IS_TOUCH_DEVICE);
 const remotes = new RemoteManager(scene, world.staticMeshes);
 const grenades = new GrenadeManager(scene, audio);
 const pickups = new PickupManager(scene);
@@ -95,6 +90,8 @@ let lastShotAt = 0;
 let triggerWasDown = false;
 let recoilPitch = 0;
 let recoilYaw = 0;
+let burstShots = 0;
+let lastBurstAt = 0;
 let bobPhase = 0;
 let bobAmount = 0;
 let stepDistance = 0;
@@ -273,7 +270,7 @@ function startOffline(nextMode: GameMode): void {
   dead = false;
   respawnAt = 0;
   currentState = null;
-  lastShotAt = 0;
+  resetFireState();
   triggerWasDown = false;
   lastWeapon = "rifle";
 
@@ -535,7 +532,7 @@ function startOnlineMatch(payload: GameStatePayload): void {
   mode = payload.mode;
   rules = payload.rules;
   currentState = payload;
-  lastShotAt = 0;
+  resetFireState();
   triggerWasDown = false;
   lastWeapon = local.weapon;
 
@@ -641,7 +638,7 @@ function syncState(
     lastWeapon = local.weapon;
     gun.setWeapon(local.weapon);
     resetScopeIndex(local.weapon);
-    lastShotAt = 0;
+    resetFireState();
   }
 
   hud.setHealth(local.health);
@@ -743,7 +740,7 @@ function requestWeapon(weapon: WeaponId): void {
     return;
   }
   lastWeapon = weapon;
-  lastShotAt = 0;
+  resetFireState();
   gun.setWeapon(weapon);
   resetScopeIndex(weapon);
   if (offlineGame) {
@@ -822,6 +819,12 @@ function requestMedkit(): void {
   audio.playPickup();
 }
 
+function resetFireState(): void {
+  lastShotAt = 0;
+  burstShots = 0;
+  lastBurstAt = 0;
+}
+
 function attemptShoot(): void {
   const local = localState();
   if (!local || local.health <= 0 || matchOver || dead) {
@@ -836,14 +839,45 @@ function attemptShoot(): void {
     return;
   }
 
-  camera.getWorldDirection(lookDirection);
+  // Derive the shot ray from the current view angles instead of the camera's
+  // matrix, which is one frame stale while firing. This removes the small
+  // "missed flick" delay between aiming and the bullet leaving the barrel.
+  const aimPitch = pitch + recoilPitch;
+  const aimYaw = yaw + recoilYaw;
+  const cosPitch = Math.cos(aimPitch);
+  lookDirection.set(
+    -Math.sin(aimYaw) * cosPitch,
+    Math.sin(aimPitch),
+    -Math.cos(aimYaw) * cosPitch,
+  );
+
   const recoilSpec = WEAPONS[local.weapon];
-  const recoilScale = input.isAiming() ? 0.72 : 1;
+  const nowMs = performance.now();
+  if (nowMs - lastBurstAt > 320) {
+    burstShots = 0;
+  } else {
+    burstShots += 1;
+  }
+  lastBurstAt = nowMs;
+
+  const recoilScale = input.isAiming() ? 0.66 : 1;
+  const rise = 1 + Math.min(burstShots, 14) * (recoilSpec.recoilRise - 1);
   const recoilKick =
-    recoilSpec.recoil * 0.012 * recoilScale * (0.88 + Math.random() * 0.24);
+    recoilSpec.recoil *
+    0.012 *
+    recoilScale *
+    rise *
+    (0.9 + Math.random() * 0.2);
   recoilPitch += recoilKick;
-  recoilYaw += (Math.random() - 0.5) * recoilKick * 0.62;
-  gun.fire();
+
+  const pattern = recoilSpec.recoilPattern;
+  const patternValue =
+    burstShots === 0
+      ? 0
+      : pattern[(burstShots - 1) % pattern.length] ?? 0;
+  recoilYaw += recoilKick * (patternValue + (Math.random() - 0.5) * 0.24);
+
+  gun.fire(rise);
   audio.playShoot(local.weapon);
   gun.muzzleWorldPosition(muzzleVector);
   effects.fireLocal(
@@ -967,7 +1001,7 @@ function leaveToMenu(): void {
   currentState = null;
   offlineGame = null;
   triggerWasDown = false;
-  lastShotAt = 0;
+  resetFireState();
   lastWeapon = "rifle";
   hasLockedOnce = false;
 
@@ -1038,6 +1072,35 @@ function updateCamera(delta: number): void {
       input.isMovingRight());
   const sprinting = movingInput && input.isSprinting() && !aiming;
   const crouching = local?.crouching === true || input.isCrouching();
+
+  const spreadSpec = WEAPONS[lastWeapon];
+  const stanceSpread = crouching ? 0.72 : 1;
+  const airSpread = local?.grounded === false ? 1.85 : 1;
+  const movementSpread = movingInput
+    ? sprinting
+      ? 1.86
+      : crouching
+        ? 1.29
+        : 1.62
+    : 1;
+  const spreadRad =
+    spreadSpec.spreadRad *
+    (aiming ? spreadSpec.adsSpreadMultiplier : 1) *
+    stanceSpread *
+    airSpread *
+    movementSpread;
+  const pixelsPerRadian =
+    window.innerHeight * 0.5 /
+    Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+  const recoilBloom = (Math.abs(recoilPitch) + Math.abs(recoilYaw)) * 220;
+  hud.setSpread(
+    clamp(
+      Math.tan(spreadRad) * pixelsPerRadian + recoilBloom,
+      0.5,
+      18,
+    ),
+  );
+
   const targetBob = movingInput
     ? (sprinting ? 1.35 : 1) * (crouching ? 0.4 : 1)
     : 0;
@@ -1195,7 +1258,14 @@ function animate(): void {
       (spec.automatic || !triggerWasDown)
     ) {
       attemptShoot();
-      lastShotAt = now;
+      // Preserve the weapon's cadence when a frame runs slightly long instead
+      // of clamping every shot to the frame boundary. Still at most one shot
+      // per frame so the server never sees two shots with the same timestamp.
+      lastShotAt =
+        lastShotAt === 0 ? now : lastShotAt + spec.fireIntervalMs;
+      if (now - lastShotAt >= spec.fireIntervalMs) {
+        lastShotAt = now;
+      }
     }
     triggerWasDown = shooting;
   } else {

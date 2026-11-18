@@ -15,6 +15,7 @@ import type {
 } from "../shared/types";
 import { WEAPONS, WEAPON_ORDER } from "../shared/weapons";
 import type { InputManager } from "./input";
+import { mergeStaticMeshes } from "./merge";
 
 export class Player {
   readonly position = new THREE.Vector3();
@@ -348,7 +349,7 @@ export class Gun {
       this.object.add(model.group);
       model.group.visible = weapon === this.current;
     }
-    this.applyTransform();
+    this.applyTransform(1 / 60);
   }
 
   setWeapon(weapon: WeaponId): void {
@@ -405,12 +406,12 @@ export class Gun {
     this.reloadRemaining = this.reloadDuration;
   }
 
-  fire(): void {
+  fire(recoilScale = 1): void {
     if (this.reloadRemaining > 0) {
       return;
     }
     const spec = WEAPONS[this.current];
-    this.recoil = Math.max(this.recoil, spec.recoil);
+    this.recoil = Math.max(this.recoil, spec.recoil * recoilScale);
     const model = this.models.get(this.current);
     if (!model) {
       return;
@@ -433,10 +434,11 @@ export class Gun {
 
   muzzleWorldPosition(out: THREE.Vector3): THREE.Vector3 {
     const model = this.models.get(this.current);
-    this.object.updateWorldMatrix(true, true);
     if (!model) {
       return this.object.getWorldPosition(out);
     }
+    // Only the flash and its ancestors need fresh matrices; updating the whole
+    // gun subtree on every shot is wasted work.
     return model.flash.getWorldPosition(out);
   }
 
@@ -495,10 +497,10 @@ export class Gun {
       this.switchRemaining = Math.max(0, this.switchRemaining - delta);
     }
 
-    this.applyTransform();
+    this.applyTransform(delta);
   }
 
-  private applyTransform(): void {
+  private applyTransform(delta: number): void {
     const model = this.models.get(this.current);
     if (!model) {
       return;
@@ -519,7 +521,7 @@ export class Gun {
     const bobY =
       Math.sin(this.bobPhase * 2) * 0.011 * this.motionAmount * groundedScale;
 
-    const blend = this.aiming ? 0.24 : 0.18;
+    const blend = 1 - Math.exp(-(this.aiming ? 17 : 12) * delta);
     this.object.position.x = THREE.MathUtils.lerp(
       this.object.position.x,
       targetX,
@@ -1198,14 +1200,22 @@ export class Gun {
                 : weapon === "smg"
                   ? new THREE.Vector3(0.24, -0.19, -0.52)
                   : new THREE.Vector3(0.24, -0.19, -0.54);
+    // ADS positions are tuned so the weapon's sight line sits on the screen
+    // center for every gun, not just the optic-equipped rifles.
     const adsPosition =
       weapon === "sniper"
-        ? new THREE.Vector3(0, -0.21, -0.3)
+        ? new THREE.Vector3(0, -0.212, -0.34)
         : weapon === "dmr"
-          ? new THREE.Vector3(0, -0.21, -0.34)
+          ? new THREE.Vector3(0, -0.212, -0.36)
           : weapon === "rifle" || weapon === "smg"
-            ? new THREE.Vector3(0, -0.155, -0.4)
-            : new THREE.Vector3(0, -0.17, -0.42);
+            ? new THREE.Vector3(0, -0.152, -0.4)
+            : weapon === "pistol"
+              ? new THREE.Vector3(0, -0.121, -0.4)
+              : weapon === "revolver"
+                ? new THREE.Vector3(0, -0.074, -0.44)
+                : weapon === "shotgun"
+                  ? new THREE.Vector3(0, -0.09, -0.46)
+                  : new THREE.Vector3(0, -0.112, -0.46);
     const flashScale =
       weapon === "shotgun"
         ? 1.5
@@ -1239,7 +1249,15 @@ export class Gun {
                     ? 0.04
                     : 0.055;
 
-    group.position.copy(basePosition);
+    const keep = new Set<THREE.Object3D>([flash, supportHand]);
+    for (const part of parts) {
+      keep.add(part.object);
+    }
+    mergeStaticMeshes(group, keep);
+
+    // Position is driven entirely by the outer gun object in applyTransform.
+    // Keeping a base offset here as well would double it and prevent the
+    // sights from centering while aiming.
     return {
       group,
       flash,

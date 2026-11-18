@@ -71,6 +71,7 @@ export class Hud {
   private readonly compassDegrees =
     byId<HTMLSpanElement>("compass-degrees");
   private readonly crosshair = byId<HTMLDivElement>("crosshair");
+  private spreadGap = -1;
   private readonly scope = byId<HTMLDivElement>("scope");
   private readonly scopeZoom = byId<HTMLDivElement>("scope-zoom");
   private readonly scopeHint = byId<HTMLDivElement>("scope-hint");
@@ -559,6 +560,16 @@ export class Hud {
   setEnemyTarget(active: boolean): void {
     this.crosshair?.classList.toggle("enemy", active);
     this.scope?.classList.toggle("enemy", active);
+  }
+
+  /** Widens the crosshair arms to communicate the current shot spread. */
+  setSpread(gap: number): void {
+    const rounded = Math.round(gap * 2) / 2;
+    if (rounded === this.spreadGap) {
+      return;
+    }
+    this.spreadGap = rounded;
+    this.crosshair?.style.setProperty("--spread", `${rounded}px`);
   }
 
   setAiming(

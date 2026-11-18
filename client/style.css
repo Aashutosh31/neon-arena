@@ -503,6 +503,7 @@ body.playing #hud {
   display: block;
   background: rgba(199, 250, 255, 0.95);
   box-shadow: 0 0 5px rgba(75, 225, 255, 0.75);
+  transition: transform 70ms ease-out;
 }
 
 #crosshair span:nth-child(1) {
@@ -510,6 +511,7 @@ body.playing #hud {
   left: 12px;
   width: 2px;
   height: 8px;
+  transform: translateY(calc(-1 * var(--spread, 0px)));
 }
 
 #crosshair span:nth-child(2) {
@@ -517,6 +519,7 @@ body.playing #hud {
   left: 12px;
   width: 2px;
   height: 8px;
+  transform: translateY(var(--spread, 0px));
 }
 
 #crosshair span:nth-child(3) {
@@ -524,6 +527,7 @@ body.playing #hud {
   left: 0;
   width: 8px;
   height: 2px;
+  transform: translateX(calc(-1 * var(--spread, 0px)));
 }
 
 #crosshair span:nth-child(4) {
@@ -531,6 +535,7 @@ body.playing #hud {
   right: 0;
   width: 8px;
   height: 2px;
+  transform: translateX(var(--spread, 0px));
 }
 
 #crosshair i {

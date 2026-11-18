@@ -36,13 +36,13 @@ export function createWorld(
     alpha: false,
   });
   renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, mobile ? 1.25 : 1.75),
+    Math.min(window.devicePixelRatio, mobile ? 1 : 1.5),
   );
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const environment = createCityEnvironment();
   const scene = new THREE.Scene();
@@ -294,15 +294,26 @@ export function createWorld(
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(
-    new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      mobile ? 0.34 : 0.52,
-      0.55,
-      mobile ? 0.8 : 0.72,
-    ),
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    mobile ? 0.34 : 0.52,
+    0.55,
+    mobile ? 0.8 : 0.72,
   );
+  composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
+
+  // Bloom runs at a fraction of the base resolution. The blur is soft by
+  // nature, so this is nearly invisible while cutting its fill cost by over
+  // half, which matters most during sustained fire.
+  const bloomScale = mobile ? 0.5 : 0.62;
+  const resize = (width: number, height: number): void => {
+    renderer.setSize(width, height);
+    composer.setSize(width, height);
+    const ratio = renderer.getPixelRatio();
+    bloomPass.setSize(width * ratio * bloomScale, height * ratio * bloomScale);
+  };
+  resize(window.innerWidth, window.innerHeight);
 
   return {
     renderer,
@@ -310,10 +321,7 @@ export function createWorld(
     camera,
     staticMeshes: [floorMesh, mapMesh],
     render: () => composer.render(),
-    resize: (width, height) => {
-      renderer.setSize(width, height);
-      composer.setSize(width, height);
-    },
+    resize,
   };
 }
 

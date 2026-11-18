@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { spreadDirection } from "../shared/combat";
+import { nearestCoverDistance, spreadDirection } from "../shared/combat";
 import type { GameMode, TeamId, WeaponId } from "../shared/types";
 import { WEAPONS } from "../shared/weapons";
 import type { GameAudio } from "./audio";
@@ -138,7 +138,6 @@ function createScorchTexture(): THREE.CanvasTexture {
 }
 
 export class CombatEffects {
-  private readonly staticMeshes: THREE.Object3D[];
   private readonly audio: GameAudio;
   private readonly raycaster = new THREE.Raycaster();
   private readonly tracers: Tracer[] = [];
@@ -170,6 +169,9 @@ export class CombatEffects {
   private readonly sparkTint = new THREE.Color();
   private readonly puffTint = new THREE.Color();
   private readonly flashTint = new THREE.Color();
+  private readonly warmFlashTint = new THREE.Color(0xffe0ae);
+  private aimCheckAt = 0;
+  private lastAimResult = false;
   private readonly softTexture: THREE.CanvasTexture;
   private readonly sparkPositions: Float32Array;
   private readonly sparkColors: Float32Array;
@@ -182,13 +184,7 @@ export class CombatEffects {
   private sparkCursor = 0;
   private sparksDirty = false;
 
-  constructor(
-    scene: THREE.Scene,
-    staticMeshes: THREE.Object3D[],
-    audio: GameAudio,
-    mobile: boolean,
-  ) {
-    this.staticMeshes = staticMeshes;
+  constructor(scene: THREE.Scene, audio: GameAudio, mobile: boolean) {
     this.audio = audio;
     this.softTexture = createSoftTexture();
     this.raycaster.far = TRACER_RANGE;
@@ -391,17 +387,27 @@ export class CombatEffects {
     localTeam: TeamId,
     mode: GameMode,
   ): boolean {
+    // Crosshair highlighting does not need a full raycast every frame. Caching
+    // at ~14 Hz keeps it responsive while cutting per-frame CPU cost sharply.
+    const now = performance.now();
+    if (now < this.aimCheckAt) {
+      return this.lastAimResult;
+    }
+    this.aimCheckAt = now + 70;
+
     this.raycaster.set(origin, direction);
     this.raycaster.far = TRACER_RANGE;
+    // hittableTargets already includes the static map, so merging both lists
+    // here previously raycast the world twice.
     const hits = this.raycaster.intersectObjects(
-      [...remotes.hittableTargets, ...this.staticMeshes],
+      remotes.hittableTargets,
       true,
     );
-    return (
+    this.lastAimResult =
       hits.length > 0 &&
       remotes.isRemoteObject(hits[0].object) &&
-      remotes.isEnemyObject(hits[0].object, localTeam, mode)
-    );
+      remotes.isEnemyObject(hits[0].object, localTeam, mode);
+    return this.lastAimResult;
   }
 
   fireLocal(
@@ -487,14 +493,20 @@ export class CombatEffects {
       .copy(this.remoteOrigin)
       .addScaledVector(this.remoteDirection, TRACER_RANGE);
     this.spawnFlash(this.remoteOrigin, 0xffcf8f, 0.2, 0.08);
-    this.raycaster.set(this.remoteOrigin, this.remoteDirection);
-    this.raycaster.far = TRACER_RANGE;
-    const hits = this.raycaster.intersectObjects(this.staticMeshes, false);
-    if (hits.length > 0) {
-      this.remoteEnd.copy(hits[0].point);
-      this.setImpactNormal(hits[0], this.remoteDirection);
-      this.spawnSparks(hits[0].point, this.normal, 1, 0xffd9a0);
-      this.spawnFlash(hits[0].point, 0xffc27a, 0.22, 0.09);
+    // Pure ray/box math against the shared map is much cheaper than raycasting
+    // the instanced map mesh for every bot shot.
+    const cover = nearestCoverDistance(
+      this.remoteOrigin,
+      this.remoteDirection,
+      TRACER_RANGE,
+    );
+    if (cover < TRACER_RANGE - 0.01) {
+      this.remoteEnd
+        .copy(this.remoteOrigin)
+        .addScaledVector(this.remoteDirection, cover);
+      this.normal.copy(this.remoteDirection).negate();
+      this.spawnSparks(this.remoteEnd, this.normal, 1, 0xffd9a0);
+      this.spawnFlash(this.remoteEnd, 0xffc27a, 0.22, 0.09);
     }
     if (weapon === "sniper") {
       this.spawnSniperBeam(this.remoteOrigin, this.remoteEnd);
@@ -713,7 +725,7 @@ export class CombatEffects {
       muzzle,
       this.flashTint
         .setHex(accent)
-        .lerp(new THREE.Color(0xffe0ae), 0.62)
+        .lerp(this.warmFlashTint, 0.62)
         .getHex(),
       0.19 * power,
       0.075,
