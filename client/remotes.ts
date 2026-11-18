@@ -302,9 +302,15 @@ export class RemoteManager {
     weapon.position.set(0.22, 1.0, -0.37);
     addBox(weapon, RIFLE_MATERIAL, 0.13, 0.14, 0.62, 0, -0.02, -0.18);
     addBox(weapon, RIFLE_MATERIAL, 0.055, 0.055, 0.38, 0, 0.01, -0.66);
+    addBox(weapon, RIFLE_MATERIAL, 0.045, 0.045, 0.3, 0, 0.015, -0.9);
+    addBox(weapon, RIFLE_MATERIAL, 0.062, 0.062, 0.09, 0, 0.015, -1.06);
+    addBox(weapon, material, 0.066, 0.014, 0.028, 0, 0.015, -1.02);
     addBox(weapon, RIFLE_MATERIAL, 0.1, 0.16, 0.22, 0, -0.03, 0.2);
+    addBox(weapon, RIFLE_MATERIAL, 0.09, 0.12, 0.16, 0, -0.02, 0.34);
     addBox(weapon, RIFLE_MATERIAL, 0.09, 0.2, 0.13, 0, -0.17, -0.17);
     addBox(weapon, material, 0.055, 0.035, 0.38, 0, 0.075, -0.24);
+    addBox(weapon, RIFLE_MATERIAL, 0.055, 0.07, 0.14, 0, 0.115, -0.2);
+    addBox(weapon, VISOR_MATERIAL, 0.036, 0.036, 0.01, 0, 0.115, -0.272);
     group.add(weapon);
 
     addBox(group, SUIT_MATERIAL, 0.15, 0.14, 0.16, 0.29, 0.94, -0.34);

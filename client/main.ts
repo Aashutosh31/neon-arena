@@ -112,6 +112,7 @@ let frameLookY = 0;
 
 const targetVector = new THREE.Vector3();
 const lookDirection = new THREE.Vector3();
+const muzzleVector = new THREE.Vector3();
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -844,7 +845,14 @@ function attemptShoot(): void {
   recoilYaw += (Math.random() - 0.5) * recoilKick * 0.62;
   gun.fire();
   audio.playShoot(local.weapon);
-  effects.fireLocal(camera.position, lookDirection, remotes, local.weapon);
+  gun.muzzleWorldPosition(muzzleVector);
+  effects.fireLocal(
+    camera.position,
+    lookDirection,
+    remotes,
+    local.weapon,
+    muzzleVector,
+  );
 
   if (offlineGame) {
     offlineGame.shoot(
